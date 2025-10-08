@@ -1,0 +1,35 @@
+{
+  "test_info": {
+    "data_source": "MCPT_BB_ATR_BTCUSDT_1d_bb124_atr8_20251006_133050",
+    "test_date": "20251006_133050",
+    "mode": "normal",
+    "metric": "profit_factor",
+    "n_permutations": 1000,
+    "start_index": 125,
+    "transaction_cost": 0.002,
+    "slippage": 0.0005
+  },
+  "strategy_params": {
+    "bb_window": 124,
+    "bb_std": 2.5,
+    "atr_window": 8,
+    "atr_multiplier": 1.5
+  },
+  "results": {
+    "original_score": 0.997136359842114,
+    "p_value": 0.0,
+    "is_significant": true,
+    "percentile": 100.0
+  },
+  "summary": {
+    "mode": "normal",
+    "metric": "profit_factor",
+    "n_permutations": 1000,
+    "start_index": 125,
+    "perm_mean": 0.0019704340992440566,
+    "perm_std": 0.006507160291689057,
+    "perm_min": 0.0,
+    "perm_max": 0.05022250682986749,
+    "perm_median": 0.0
+  }
+}

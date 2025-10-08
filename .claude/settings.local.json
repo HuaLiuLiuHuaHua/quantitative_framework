@@ -1,0 +1,18 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(C:/Python313/python.exe c:/Users/liual/OneDrive/桌面/quantitative_framework/strategies/lstm_sol/test_njobs.py)",
+      "SlashCommand(/review c:\\Users\\liual\\OneDrive\\桌面\\quantitative_framework\\strategies\\bb_atr\\strategy.py c:\\Users\\liual\\OneDrive\\桌面\\quantitative_framework\\strategies\\sma_atr\\strategy.py)",
+      "SlashCommand(/review:*)",
+      "Bash(git diff:*)",
+      "Bash(python:*)",
+      "Bash(dir:*)",
+      "Bash(timeout 60 python:*)",
+      "Bash(del:*)",
+      "Bash(findstr:*)",
+      "Read(//c/Users/liual/OneDrive/桌面/medium/**)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}

@@ -1,0 +1,90 @@
+{
+  "data_source": "Optimization_BB_ATR_SOLUSDT_1h_profit_factor_20251006_124518",
+  "optimization_date": "20251006_124518",
+  "total_combinations": 2205,
+  "param_grid": {
+    "bb_window": [
+      120,
+      121,
+      122,
+      123,
+      124,
+      125,
+      126,
+      127,
+      128,
+      129,
+      130,
+      131,
+      132,
+      133,
+      134,
+      135,
+      136,
+      137,
+      138,
+      139,
+      140,
+      141,
+      142,
+      143,
+      144,
+      145,
+      146,
+      147,
+      148,
+      149,
+      150,
+      151,
+      152,
+      153,
+      154,
+      155,
+      156,
+      157,
+      158,
+      159,
+      160,
+      161,
+      162,
+      163,
+      164,
+      165,
+      166,
+      167,
+      168
+    ],
+    "bb_std": [
+      2.0,
+      2.5,
+      3.0
+    ],
+    "atr_window": [
+      8,
+      9,
+      10,
+      11,
+      12
+    ],
+    "atr_multiplier": [
+      0.5,
+      1.0,
+      1.5
+    ]
+  },
+  "objective": "profit_factor",
+  "transaction_cost": 0.002,
+  "slippage": 0.0005,
+  "best_params": {
+    "bb_window": 124.0,
+    "bb_std": 2.5,
+    "atr_window": 9.0,
+    "atr_multiplier": 1.5
+  },
+  "best_score": 1.0642079896860182,
+  "data_info": {
+    "start_date": "2022-10-01 00:00:00",
+    "end_date": "2024-09-30 00:00:00",
+    "data_points": 17521
+  }
+}

@@ -1,0 +1,74 @@
+{
+  "window_0": {
+    "bb_window": 124.0,
+    "bb_std": 2.5,
+    "atr_window": 8.0,
+    "atr_multiplier": 1.5
+  },
+  "window_1": {
+    "bb_window": 169.0,
+    "bb_std": 2.5,
+    "atr_window": 10.0,
+    "atr_multiplier": 1.5
+  },
+  "window_2": {
+    "bb_window": 167.0,
+    "bb_std": 2.5,
+    "atr_window": 12.0,
+    "atr_multiplier": 0.5
+  },
+  "window_3": {
+    "bb_window": 164.0,
+    "bb_std": 3.0,
+    "atr_window": 8.0,
+    "atr_multiplier": 1.5
+  },
+  "window_4": {
+    "bb_window": 168.0,
+    "bb_std": 3.0,
+    "atr_window": 13.0,
+    "atr_multiplier": 1.5
+  },
+  "window_5": {
+    "bb_window": 168.0,
+    "bb_std": 3.0,
+    "atr_window": 9.0,
+    "atr_multiplier": 1.5
+  },
+  "window_6": {
+    "bb_window": 168.0,
+    "bb_std": 3.0,
+    "atr_window": 11.0,
+    "atr_multiplier": 1.5
+  },
+  "window_7": {
+    "bb_window": 168.0,
+    "bb_std": 3.0,
+    "atr_window": 9.0,
+    "atr_multiplier": 1.5
+  },
+  "window_8": {
+    "bb_window": 168.0,
+    "bb_std": 3.0,
+    "atr_window": 10.0,
+    "atr_multiplier": 1.5
+  },
+  "window_9": {
+    "bb_window": 168.0,
+    "bb_std": 3.0,
+    "atr_window": 9.0,
+    "atr_multiplier": 1.5
+  },
+  "window_10": {
+    "bb_window": 163.0,
+    "bb_std": 3.0,
+    "atr_window": 8.0,
+    "atr_multiplier": 1.5
+  },
+  "window_11": {
+    "bb_window": 163.0,
+    "bb_std": 3.0,
+    "atr_window": 13.0,
+    "atr_multiplier": 0.5
+  }
+}

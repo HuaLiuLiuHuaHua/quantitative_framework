@@ -1,0 +1,36 @@
+{
+  "test_info": {
+    "data_source": "MCPT_MACD_ATR_SOLUSDT_1d_macd2_4_2_atr90_20251007_130028",
+    "test_date": "20251007_130028",
+    "mode": "normal",
+    "metric": "profit_factor",
+    "n_permutations": 1000,
+    "start_index": 91,
+    "transaction_cost": 0.002,
+    "slippage": 0.0005
+  },
+  "strategy_params": {
+    "macd_fast": 2,
+    "macd_slow": 4,
+    "macd_signal": 2,
+    "atr_window": 90,
+    "atr_multiplier": 0.5
+  },
+  "results": {
+    "original_score": 1.3167569361956615,
+    "p_value": 0.0,
+    "is_significant": true,
+    "percentile": 100.0
+  },
+  "summary": {
+    "mode": "normal",
+    "metric": "profit_factor",
+    "n_permutations": 1000,
+    "start_index": 91,
+    "perm_mean": 0.8153593956354882,
+    "perm_std": 0.09774925704383614,
+    "perm_min": 0.552070494620721,
+    "perm_max": 1.063977445470003,
+    "perm_median": 0.8049694301706534
+  }
+}

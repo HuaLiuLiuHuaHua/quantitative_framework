@@ -1,0 +1,7 @@
+{
+  "rsi_window": 4,
+  "rsi_long_threshold": 90,
+  "rsi_short_threshold": 5,
+  "atr_window": 2,
+  "atr_multiplier": 1.0
+}

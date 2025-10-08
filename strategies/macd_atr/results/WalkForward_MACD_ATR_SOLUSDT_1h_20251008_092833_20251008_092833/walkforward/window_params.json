@@ -1,0 +1,86 @@
+{
+  "window_0": {
+    "macd_fast": 2,
+    "macd_slow": 6,
+    "macd_signal": 3,
+    "atr_window": 57,
+    "atr_multiplier": 1.0
+  },
+  "window_1": {
+    "macd_fast": 2,
+    "macd_slow": 5,
+    "macd_signal": 2,
+    "atr_window": 69,
+    "atr_multiplier": 0.5
+  },
+  "window_2": {
+    "macd_fast": 3,
+    "macd_slow": 7,
+    "macd_signal": 2,
+    "atr_window": 96,
+    "atr_multiplier": 1.5
+  },
+  "window_3": {
+    "macd_fast": 2,
+    "macd_slow": 8,
+    "macd_signal": 2,
+    "atr_window": 57,
+    "atr_multiplier": 1.0
+  },
+  "window_4": {
+    "macd_fast": 2,
+    "macd_slow": 6,
+    "macd_signal": 4,
+    "atr_window": 99,
+    "atr_multiplier": 1.5
+  },
+  "window_5": {
+    "macd_fast": 2,
+    "macd_slow": 7,
+    "macd_signal": 2,
+    "atr_window": 70,
+    "atr_multiplier": 1.5
+  },
+  "window_6": {
+    "macd_fast": 3,
+    "macd_slow": 7,
+    "macd_signal": 3,
+    "atr_window": 96,
+    "atr_multiplier": 1.0
+  },
+  "window_7": {
+    "macd_fast": 3,
+    "macd_slow": 4,
+    "macd_signal": 2,
+    "atr_window": 95,
+    "atr_multiplier": 1.0
+  },
+  "window_8": {
+    "macd_fast": 2,
+    "macd_slow": 6,
+    "macd_signal": 3,
+    "atr_window": 96,
+    "atr_multiplier": 0.5
+  },
+  "window_9": {
+    "macd_fast": 2,
+    "macd_slow": 5,
+    "macd_signal": 2,
+    "atr_window": 75,
+    "atr_multiplier": 1.5
+  },
+  "window_10": {
+    "macd_fast": 2,
+    "macd_slow": 4,
+    "macd_signal": 3,
+    "atr_window": 58,
+    "atr_multiplier": 1.5
+  },
+  "window_11": {
+    "macd_fast": 4,
+    "macd_slow": 8,
+    "macd_signal": 4,
+    "atr_window": 89,
+    "atr_multiplier": 0.5
+  }
+}

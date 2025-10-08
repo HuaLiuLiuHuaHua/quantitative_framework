@@ -1,0 +1,6 @@
+{
+  "rsi_window": 18.0,
+  "rsi_long_threshold": 50.0,
+  "rsi_short_threshold": 30.0,
+  "sma_period": 30.0
+}

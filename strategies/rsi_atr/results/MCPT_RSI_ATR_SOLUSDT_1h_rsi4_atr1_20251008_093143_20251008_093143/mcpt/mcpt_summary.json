@@ -1,0 +1,36 @@
+{
+  "test_info": {
+    "data_source": "MCPT_RSI_ATR_SOLUSDT_1h_rsi4_atr1_20251008_093143",
+    "test_date": "20251008_093143",
+    "mode": "normal",
+    "metric": "profit_factor",
+    "n_permutations": 1000,
+    "start_index": 5,
+    "transaction_cost": 0.002,
+    "slippage": 0.0005
+  },
+  "strategy_params": {
+    "rsi_window": 4,
+    "rsi_long_threshold": 90,
+    "rsi_short_threshold": 5,
+    "atr_window": 1,
+    "atr_multiplier": 0.5
+  },
+  "results": {
+    "original_score": 1.3092310695946965,
+    "p_value": 0.0,
+    "is_significant": true,
+    "percentile": 100.0
+  },
+  "summary": {
+    "mode": "normal",
+    "metric": "profit_factor",
+    "n_permutations": 1000,
+    "start_index": 5,
+    "perm_mean": 0.2081016894972895,
+    "perm_std": 0.3855116915966107,
+    "perm_min": 0.0,
+    "perm_max": 1.1415966074184452,
+    "perm_median": 0.0
+  }
+}
