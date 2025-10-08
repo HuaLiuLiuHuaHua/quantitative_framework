@@ -9,13 +9,10 @@ RSI-ATR策略 - Walk-Forward分析
 4. 避免前視偏差
 """
 
-import sys
-from pathlib import Path
-sys.path.append(str(Path(__file__).parents[2]))
-
 import pandas as pd
 import numpy as np
 from datetime import datetime
+from pathlib import Path
 
 # 導入策略和工具
 from strategies.rsi_atr.strategy import RSIATRStrategy
@@ -26,6 +23,10 @@ from shared.visualization import plot_walkforward_performance
 def rsi_atr_strategy_func(data: pd.DataFrame, rsi_window: int, rsi_long_threshold: int,
                           rsi_short_threshold: int, atr_window: int, atr_multiplier: float):
     """RSI-ATR策略包裝函數"""
+    # 增加參數驗證，避免優化器傳入無效組合
+    if rsi_long_threshold <= rsi_short_threshold:
+        return None  # 返回 None，優化器會跳過此組合
+    
     strategy = RSIATRStrategy()
     return strategy.generate_signals(
         data,

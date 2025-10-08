@@ -3,13 +3,10 @@ MA Crossover Strategy - Walk-Forward Analysis
 移動平均線交叉策略 - Walk-Forward分析
 """
 
-import sys
-from pathlib import Path
-sys.path.append(str(Path(__file__).parents[2]))
-
 import pandas as pd
 import numpy as np
 from datetime import datetime
+from pathlib import Path
 
 # 導入策略和工具
 from strategies.ma_crossover.strategy import MACrossoverStrategy
