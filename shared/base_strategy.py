@@ -1,67 +1,112 @@
 """
 Base Strategy Class
-策略基類 - 所有策略必須繼承此類
+All strategies must inherit from this class.
 
-設計原則：
-- 最簡化設計，只需實現 generate_signals() 方法
-- 策略邏輯與回測/優化/驗證分離
+Design Principle:
+- Compatible with two backtest engines:
+  1. Vectorized Engine: Implement generate_signals()
+  2. Event-Driven Engine: Implement add_indicators(), check_entry_signal(), check_exit_signal()
 """
 
 import pandas as pd
 from abc import ABC, abstractmethod
+from typing import Dict, Any, Optional
+import dataclasses
+
+
+@dataclasses.dataclass
+class Position:
+    """Represents a trading position."""
+    entry_price: float
+    quantity: float
+    direction: int  # 1 for long, -1 for short
+    entry_timestamp: pd.Timestamp
+    stop_loss_price: float
+    take_profit_price: float
 
 
 class BaseStrategy(ABC):
     """
-    策略基類
+    Base class for all strategies.
 
-    所有自定義策略必須繼承此類並實現 generate_signals() 方法
+    All strategies should inherit from this class.
+    Implement the corresponding methods based on the chosen backtest engine.
     """
 
-    @abstractmethod
-    def generate_signals(self, df: pd.DataFrame, **params) -> pd.Series:
+    def __init__(self, **params: Any):
         """
-        生成交易信號（必須實現）
+        Initializes the strategy and sets its parameters.
 
         Args:
-            df: OHLCV數據，必須包含以下列：
-                - open: 開盤價
-                - high: 最高價
-                - low: 最低價
-                - close: 收盤價
-                - volume: 成交量
-                - timestamp或index: 時間索引
-            **params: 策略參數（如 lookback=20, threshold=0.02 等）
+            **params: A dictionary of parameters for the strategy.
+        """
+        self.params = params
+
+    @abstractmethod
+    def get_lookback(self) -> int:
+        """
+        (Required for Event-Driven Engine) Returns the lookback period required by the strategy.
+
+        This method should calculate and return the maximum number of bars required
+        for all indicators to warm up properly.
 
         Returns:
-            pd.Series: 交易信號序列，與df同索引
-                - 1: 做多（買入）
-                - -1: 做空（賣出）
-                - 0: 空倉（無持倉）
-
-        注意事項：
-            1. 必須避免前視偏差（look-ahead bias）
-               - 使用 shift(1) 確保信號基於前一期數據
-               - 使用 rolling(n-1) 不包括當前K線
-            2. 信號應為整數類型（1, -1, 0）
-            3. 返回的Series長度必須與輸入df相同
-            4. 處理NaN值（初始幾根K線可能無法計算指標）
-
-        Example:
-            >>> def generate_signals(self, df, lookback=20):
-            >>>     # 計算通道（嚴格避免前視偏差）
-            >>>     # shift(1)先排除當前K棒，再rolling計算歷史最高/最低價
-            >>>     upper = df['close'].shift(1).rolling(lookback).max()
-            >>>     lower = df['close'].shift(1).rolling(lookback).min()
-            >>>
-            >>>     # 生成信號
-            >>>     signal = pd.Series(0, index=df.index)
-            >>>     signal.loc[df['close'] > upper] = 1
-            >>>     signal.loc[df['close'] < lower] = -1
-            >>>
-            >>>     # 前向填充保持倉位
-            >>>     signal = signal.replace(0, pd.NA).ffill().fillna(0)
-            >>>
-            >>>     return signal
+            int: The lookback period.
         """
-        raise NotImplementedError("子類必須實現 generate_signals() 方法")
+        raise NotImplementedError("Strategies must implement get_lookback()")
+
+    # --- For Event-Driven Engine ---
+
+    def add_indicators(self, df: pd.DataFrame) -> pd.DataFrame:
+        """
+        (Optional for Event-Driven Engine) Adds all necessary technical indicators to the data.
+        
+        Args:
+            df: The OHLCV data.
+
+        Returns:
+            A new DataFrame with the indicators.
+        """
+        return df
+
+    def check_entry_signal(self, df: pd.DataFrame, i: int) -> int:
+        """
+        (Required for Event-Driven Engine) Checks for an entry signal at the given index.
+
+        Args:
+            df: The complete data with indicators.
+            i: The index of the current bar.
+
+        Returns:
+            int: 1 for long, -1 for short, 0 for no signal.
+        """
+        raise NotImplementedError("Event-driven strategies must implement check_entry_signal()")
+
+    def check_exit_signal(self, df: pd.DataFrame, i: int, position: Position) -> bool:
+        """
+        (Optional for Event-Driven Engine) Checks for an exit signal at the given index.
+
+        Args:
+            df: The complete data with indicators.
+            i: The index of the current bar.
+            position: The current position object.
+
+        Returns:
+            bool: True to close the position, False to hold.
+        """
+        return False
+
+    # --- For Vectorized Engine ---
+
+    def generate_signals(self, df: pd.DataFrame, **params: Any) -> pd.Series:
+        """
+        (Required for Vectorized Engine) Generates a complete series of trade signals.
+        
+        Args:
+            df: The OHLCV data.
+            **params: Strategy parameters.
+
+        Returns:
+            pd.Series: A series of trade signals (1, -1, 0).
+        """
+        raise NotImplementedError("Vectorized strategies must implement generate_signals()")

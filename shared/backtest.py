@@ -242,11 +242,11 @@ class BacktestEngine:
         leverage: int = 1,
         stop_loss_fee: float = 0.00055
     ):
-        # 驗證 leverage 必須是整數 (Issue #7)
-        if not isinstance(leverage, (int, np.integer)):
-            raise TypeError(f"leverage 必須是整數，得到 {type(leverage).__name__}")
-        if leverage < 1 or leverage > 10:
-            raise ValueError(f"leverage 必須在 [1, 10] 之間，得到 {leverage}")
+        # 驗證 leverage 必須是數字 (Issue #7, modified to allow float)
+        if not isinstance(leverage, (int, np.integer, float, np.floating)):
+            raise TypeError(f"leverage 必須是數字，得到 {type(leverage).__name__}")
+        if leverage < 0:
+            raise ValueError(f"leverage 必須 >= 0，得到 {leverage}")
 
         self.data = data.copy()
         self.signals = signals.copy()
@@ -254,7 +254,7 @@ class BacktestEngine:
         self.slippage = slippage
         self.initial_capital = initial_capital
         self.periods_per_year = periods_per_year
-        self.leverage = int(leverage)  # 已驗證，轉換為整數
+        self.leverage = float(leverage)  # 允許浮點數槓桿
         self.stop_loss_fee = stop_loss_fee  # 止損手續費 (0.055%)
         self.signals = self.signals.reindex(self.data.index, fill_value=0)
         self.equity_curve = None
@@ -262,7 +262,7 @@ class BacktestEngine:
         self.metrics = None
 
         # 動態止損位置計算
-        self.stop_loss_pct = -1.0 / self.leverage if self.leverage > 0 else -1.0
+        self.stop_loss_pct = -1.0 / self.leverage if self.leverage > 0 else -np.inf
 
     def run(self) -> Dict:
         """
@@ -283,14 +283,15 @@ class BacktestEngine:
         total_cost_rate = self.transaction_cost + self.slippage
 
         # ==================== 修复1：正确应用信号到价格收益 ====================
-        # 信号应该在当期直接应用（不使用shift(1)），因为backtest是在收盘价进出
-        # 修复前的错误: strategy_returns = self.signals.shift(1) * price_returns - trade_costs
-        # 原因：shift(1)会导致信号延迟，使得大多数时间信号为0，权益曲线不动
+        # 信号应该延迟一期(shift(1))再应用，因为信号是根据T日的收盘价计算的，
+        # 只能在T+1日才能根据该信号进行交易并产生收益。
+        # 修复前的错误: strategy_returns = self.signals * price_returns
+        # 原因：未延迟信号会导致使用未来函数，即假设在当天信号产生时就能获得当天的收益，这是不现实的。
         
         # 正确逻辑：
-        # 1. 当持有多头/空头头寸时，应该在当期获得该头寸的收益
-        # 2. 仅在position_changes != 0时收取交易成本
-        strategy_returns = self.signals * price_returns  # 当期信号应用到当期收益
+        # 1. 使用前一天的信号 (self.signals.shift(1)) 来决定当天的仓位和收益。
+        # 2. 仅在position_changes != 0时收取交易成本。
+        strategy_returns = self.signals.shift(1) * price_returns  # 使用前一天的信号乘以当天的收益
         
         # 交易成本：仅在开仓/平仓时收取
         # 这里使用简化模型：交易成本 = 开仓成本 + 平仓成本

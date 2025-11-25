@@ -43,86 +43,69 @@ def calculate_all_metrics(
 
     Returns:
         Dict[str, float]: 包含13個績效指標的字典
-
-    Example:
-        >>> metrics = calculate_all_metrics(
-        ...     returns=strategy_returns,
-        ...     signals=signals,
-        ...     periods_per_year=8760  # 1小時K線
-        ... )
-        >>> print(f"夏普比率: {metrics['sharpe_ratio']:.3f}")
     """
     returns = returns.dropna()
 
     if len(returns) == 0:
         return _get_zero_metrics()
 
-    # 1. 總收益率
+    # --- Portfolio-level metrics (Unaffected by the fix) ---
     total_return = (1 + returns).prod() - 1
-
-    # 2. 年化收益率
-    if len(returns) > 0:
-        annualized_return = (1 + returns.mean()) ** periods_per_year - 1
-    else:
-        annualized_return = 0
-
-    # 3. 年化波動率
+    annualized_return = (1 + returns.mean()) ** periods_per_year - 1 if len(returns) > 0 else 0
     volatility = returns.std() * np.sqrt(periods_per_year)
+    sharpe_ratio = annualized_return / volatility if volatility > 0 else 0
 
-    # 4. 夏普比率
-    if volatility > 0:
-        sharpe_ratio = annualized_return / volatility
-    else:
-        sharpe_ratio = 0
-
-    # 5. 最大回撤
     cumulative_returns = (1 + returns).cumprod()
     rolling_max = cumulative_returns.expanding().max()
     drawdown = (cumulative_returns - rolling_max) / rolling_max
     max_drawdown = drawdown.min()
+    calmar_ratio = annualized_return / abs(max_drawdown) if max_drawdown != 0 else 0
 
-    # 6. 卡瑪比率
-    if max_drawdown != 0:
-        calmar_ratio = annualized_return / abs(max_drawdown)
+    # --- Trade-level metrics (FIXED LOGIC) ---
+    if signals is not None and not signals.eq(0).all():
+        # Use previous period's signal to determine position for the current period's return
+        positions = signals.shift(1).fillna(0)
+        
+        # A trade is a sequence of identical non-zero positions.
+        # A new trade starts when the position changes.
+        trades = positions.diff().ne(0).cumsum()
+        
+        # We only analyze periods where a position was held
+        active_positions = positions[positions != 0]
+        
+        if not active_positions.empty:
+            active_returns = returns[positions != 0]
+            active_trades = trades[positions != 0]
+
+            # Calculate PnL for each individual trade by compounding its returns
+            per_trade_pnl = active_returns.groupby(active_trades).apply(lambda x: (1 + x).prod() - 1)
+
+            winning_trades_pnl = per_trade_pnl[per_trade_pnl > 0]
+            losing_trades_pnl = per_trade_pnl[per_trade_pnl < 0]
+
+            total_trades = len(per_trade_pnl)
+            winning_trades = len(winning_trades_pnl)
+            losing_trades = len(losing_trades_pnl)
+
+            win_rate = winning_trades / total_trades if total_trades > 0 else 0
+            avg_win = winning_trades_pnl.mean() if winning_trades > 0 else 0
+            avg_loss = losing_trades_pnl.mean() if losing_trades > 0 else 0
+            
+            # Profit factor is the sum of all positive *period returns* during active trades
+            # divided by the absolute sum of all negative *period returns* during active trades.
+            gross_profit = active_returns[active_returns > 0].sum()
+            gross_loss = abs(active_returns[active_returns < 0].sum())
+
+            if gross_loss > 0:
+                profit_factor = gross_profit / gross_loss
+            else:
+                profit_factor = np.inf if gross_profit > 0 else 0
+        else:
+            # No positions were ever held
+            total_trades, winning_trades, losing_trades, win_rate, avg_win, avg_loss, profit_factor = (0, 0, 0, 0, 0, 0, 0)
     else:
-        calmar_ratio = 0
-
-    # 7-10. 勝率和獲利因子相關指標
-    winning_returns = returns[returns > 0]
-    losing_returns = returns[returns < 0]
-
-    win_rate = len(winning_returns) / len(returns) if len(returns) > 0 else 0
-    avg_win = winning_returns.mean() if len(winning_returns) > 0 else 0
-    avg_loss = losing_returns.mean() if len(losing_returns) > 0 else 0
-
-    # 10. 獲利因子
-    gross_profit = winning_returns.sum()
-    gross_loss = abs(losing_returns.sum())
-
-    if gross_loss > 0:
-        profit_factor = gross_profit / gross_loss
-    else:
-        profit_factor = np.inf if gross_profit > 0 else 0
-
-    # 11-13. 交易次數
-    if signals is not None:
-        # 計算實際的交易次數（開倉或換倉）
-        # 從0進入非0，或從非0切換到另一個非0都算作交易
-        # 但0→0不算交易
-        signal_changes = signals.diff()
-        # 計算所有倉位變化（但排除0→0的情況）
-        # 倉位變化且（當前非0或前一個非0）才算交易
-        trades_mask = (signal_changes != 0) & ((signals != 0) | (signals.shift(1) != 0))
-        total_trades = trades_mask.sum()
-
-        # 更精確的獲利/虧損交易計算
-        winning_trades = len(winning_returns)
-        losing_trades = len(losing_returns)
-    else:
-        # 如果沒有提供signals，使用returns作為代理
-        total_trades = len(returns)
-        winning_trades = len(winning_returns)
-        losing_trades = len(losing_returns)
+        # No trades if no signals or all signals are zero
+        total_trades, winning_trades, losing_trades, win_rate, avg_win, avg_loss, profit_factor = (0, 0, 0, 0, 0, 0, 0)
 
     return {
         'total_return': total_return,

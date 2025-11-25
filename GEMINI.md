@@ -1,99 +1,92 @@
-# Gemini Code Assistant Context: quantitative_framework
 
-## Project Overview
+# Project Overview
 
-This project is a professional quantitative trading framework written in Python. It is designed for the development, backtesting, optimization, and robust analysis of algorithmic trading strategies. The framework places a strong emphasis on rigorous testing and the avoidance of common pitfalls like lookahead bias.
+This project is a Python-based quantitative trading framework designed for the development, backtesting, and analysis of algorithmic trading strategies. It provides a robust set of tools to handle tasks such as data fetching, strategy implementation, performance evaluation, and statistical validation. The framework is built with a strong emphasis on preventing lookahead bias and ensuring the statistical significance of backtest results.
 
-The architecture is modular, consisting of three main parts:
-1.  **Data Fetchers (`data_fetchers/`)**: A collection of scripts responsible for downloading historical market data (e.g., from the Bybit exchange) and saving it locally in CSV format.
-2.  **Shared Library (`shared/`)**: The core engine of the framework. It provides reusable components for:
-    *   **Data Loading (`data_loader.py`)**: A unified interface to load local data, with a fallback to fetch new data if it's missing.
-    *   **Backtesting (`backtest.py`)**: A sophisticated engine that simulates strategy performance, accounting for transaction costs and slippage, and calculates a comprehensive set of performance metrics.
-    *   **Optimization (`optimizer.py`)**: A parallelized grid-search optimizer to find the best parameters for a strategy based on a specified objective function (e.g., Sharpe Ratio, Profit Factor).
-    *   **Walk-Forward Analysis (`walkforward.py`)**: A tool for robust out-of-sample testing that simulates a real-world scenario of periodically re-optimizing a strategy.
-    *   **Metrics & Visualization**: Modules for calculating performance metrics and plotting results.
-3.  **Strategies (`strategies/`)**: Individual trading strategy implementations. Each strategy resides in its own directory, containing the core logic and a suite of test scripts for execution.
+## Key Technologies
 
-## Building and Running
+*   **Python**: The core programming language.
+*   **Pandas**: For data manipulation and analysis.
+*   **NumPy**: For numerical operations.
+*   **Matplotlib & Seaborn**: For data visualization.
+*   **ta**: A library for technical analysis, used to calculate indicators.
+*   **Numba**: For accelerating Python code, particularly in signal calculation.
 
-### 1. Install Dependencies
+## Architecture
 
-The project dependencies are managed via `pip`. The `README.md` indicates a `requirements.txt` file should exist.
+The framework is organized into several key directories:
+
+*   `data/`: Stores historical price data for various assets.
+*   `data_fetchers/`: Contains scripts for downloading data from exchanges like Bybit.
+*   `factors/`: Provides a library of "factor operators" for creating custom trading signals and indicators.
+*   `shared/`: Contains the core components of the framework, including:
+    *   `backtest.py`: Vectorized and event-driven backtesting engines.
+    *   `optimizer.py`: Tools for strategy parameter optimization.
+    *   `walkforward.py`: For conducting walk-forward analysis to test strategy robustness.
+    *   `mcpt.py`: Implements the Monte Carlo Permutation Test for statistical significance.
+*   `strategies/`: Contains implementations of different trading strategies.
+
+# Building and Running
+
+## 1. Install Dependencies
+
+To set up the environment, install the required Python packages from the `requirements.txt` file:
 
 ```bash
-# Navigate to the project root
-cd C:\Users\liual\OneDrive\桌面\quantitative_framework
-
-# Install required Python packages
 pip install -r requirements.txt
 ```
-*(TODO: A `requirements.txt` file was mentioned in the README but not found in the file listing. It should be created to lock dependencies.)*
 
-### 2. Fetch Market Data
+## 2. Fetch Data
 
-Before running any tests, you must download the necessary historical data. This is done by running the appropriate script from the `data_fetchers` directory.
+The framework includes scripts to fetch historical data. For example, to get BTC/USDT 1-hour data from Bybit, you can run:
 
-```bash
-# Example: To run a fetcher script directly (if it has a __main__ block)
-python data_fetchers/bybit_sol_1h_fetcher.py
+```python
+from data_fetchers.bybit_btc_1h_fetcher import fetch_bybit_btc_1h_data
+
+df = fetch_bybit_btc_1h_data(
+    start_date="2024-01-01",
+    end_date="2024-12-31",
+    save=True
+)
 ```
 
-### 3. Run a Strategy Test
+## 3. Run a Backtest
 
-The primary entry points for running the framework are the `test_*.py` files located within each strategy's sub-directory (e.g., `strategies/bb_atr/`).
+Each strategy directory contains a `test_backtest.py` script to run a backtest for that strategy. For example, to backtest the `bb_atr` strategy:
 
-**To run a simple backtest:**
 ```bash
-# Navigate to the strategy directory
 cd strategies/bb_atr
-
-# Run the backtest script
 python test_backtest.py
 ```
 
-**To run a parameter optimization:**
-```bash
-# Navigate to the strategy directory
-cd strategies/bb_atr
+## 4. Run a Parameter Optimization
 
-# Run the optimization script
-python test_optimization.py
+To find the best parameters for a strategy, you can run the optimization script:
+
+```bash
+cd strategies/bb_atr
+python test_optimization_random.py
 ```
 
-**To run a walk-forward analysis:**
-```bash
-# Navigate to the strategy directory
-cd strategies/bb_atr
+# Development Conventions
 
-# Run the walk-forward script
-python test_walkforward.py
-```
-*Note: Configuration for each test (e.g., date range, strategy parameters) is managed within the `if __name__ == "__main__":` block of the respective test script.*
+## Creating a New Strategy
 
-## Development Conventions
+To create a new trading strategy, follow these steps:
 
-### Adding a New Strategy
+1.  **Create a new directory** under `strategies/`.
+2.  **Implement the strategy logic** in a `strategy.py` file. The strategy class should include:
+    *   A `generate_signals` method that takes a DataFrame and returns a Series of trading signals (1 for long, -1 for short, 0 for flat).
+    *   Methods to define default parameters and a parameter grid for optimization.
+3.  **Create a `test_backtest.py` script** to run a backtest of the strategy.
+4.  **Create a `test_optimization_random.py` script** to run a parameter optimization.
 
-1.  **Create Directory**: Create a new sub-directory inside `strategies/` (e.g., `strategies/my_new_strategy/`).
-2.  **Implement Logic**: Inside the new directory, create a `strategy.py` file. This file should contain a class with a `generate_signals(self, df: pd.DataFrame, **params) -> pd.Series` method that returns a pandas Series of signals (1 for long, -1 for short, 0 for neutral).
-3.  **Create Test Scripts**: Copy the `test_backtest.py`, `test_optimization.py`, and `test_walkforward.py` scripts from an existing strategy (like `bb_atr`) into your new directory.
-4.  **Adapt Scripts**: Modify the copied test scripts to import and instantiate your new strategy class and adjust the parameter grids and default settings as needed.
+## Avoiding Lookahead Bias
 
-### Lookahead Bias Prevention
+A core principle of the framework is to avoid lookahead bias. When generating signals, always use shifted data to ensure that decisions are made only with information available at that time. For example, when using a moving average, use `.shift(1)` to access the previous bar's value:
 
-A core principle of this framework is the strict avoidance of lookahead bias. When generating signals, any indicator or data point used for a decision on a given candle **must** be from a previous candle. The established convention is to use `.shift(1)` on indicator data before comparing it to the current price.
-
-**Correct Implementation Example:**
 ```python
-# Calculate the indicator on historical data, then shift it
-indicator = df['close'].rolling(20).mean().shift(1)
-
-# Now, compare the current price to the *previous* indicator value
-signals[df['close'] > indicator] = 1
+# Correct: Use the previous bar's moving average
+ma = df['close'].rolling(20).mean().shift(1)
+signals[df['close'] > ma] = 1
 ```
-
-### Code Structure
-
-*   **Reusable Logic**: Any function or class that can be used across multiple strategies (e.g., a new performance metric) should be added to the `shared/` library.
-*   **Data**: All market data should be stored in the `data/` directory with a consistent naming scheme (e.g., `SYMBOL_TIMEFRAME_START_END.csv`).
-*   **Results**: All output from tests (CSV files, JSON summaries, PNG charts) is automatically saved into a `results/` sub-directory within the corresponding strategy's folder.

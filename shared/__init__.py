@@ -27,7 +27,7 @@ from .metrics import (
 )
 from .backtest import BacktestEngine, quick_backtest
 from .permutation import advanced_permutation, simple_permutation, validate_ohlc
-from .optimizer import ParameterOptimizer, quick_optimize
+from .optimizer import ParameterOptimizer
 from .mcpt import MonteCarloTester
 from .walkforward import WalkForwardAnalyzer
 from .visualization import (

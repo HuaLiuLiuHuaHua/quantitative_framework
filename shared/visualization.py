@@ -112,35 +112,49 @@ def plot_backtest_results(
     # 計算長期持有（Buy & Hold）基準
     if show_buy_and_hold:
         initial_capital = equity_curve.iloc[0]
-        # 對齊數據索引
-        aligned_data = data.reindex(equity_curve.index, method='ffill')
+        # 使用完整的原始數據，從策略開始時間點開始計算長期持有
+        # 找到策略權益曲線的起始時間點
+        first_equity_date = equity_curve.index[0]
+        # 過濾出從策略開始到數據結束的所有數據
+        buy_hold_data = data.loc[data.index >= first_equity_date].copy()
 
         # ===== CRITICAL ISSUE FIX #1: Index alignment with NaN validation =====
-        # Check if reindexing introduced NaN values
-        if aligned_data['close'].isna().all():
-            warnings.warn("Aligned data contains all NaN values - disabling buy & hold comparison")
+        # Check if filtered data is empty or contains all NaN values
+        if len(buy_hold_data) == 0 or buy_hold_data['close'].isna().all():
+            warnings.warn("Buy & hold data is empty or contains all NaN values - disabling buy & hold comparison")
             show_buy_and_hold = False
         else:
-            # Forward fill any NaN values introduced by reindexing
-            aligned_data['close'] = aligned_data['close'].fillna(method='ffill')
+            # Forward fill any NaN values
+            buy_hold_data['close'] = buy_hold_data['close'].ffill()
 
             # If still have NaN at the beginning, backward fill
-            if aligned_data['close'].isna().any():
-                aligned_data['close'] = aligned_data['close'].fillna(method='bfill')
+            if buy_hold_data['close'].isna().any():
+                buy_hold_data['close'] = buy_hold_data['close'].bfill()
 
             # ===== CRITICAL ISSUE FIX #2: Division by zero check for initial close price =====
-            initial_close = aligned_data['close'].iloc[0]
+            initial_close = buy_hold_data['close'].iloc[0]
             if initial_close == 0 or np.isnan(initial_close) or np.isinf(initial_close):
                 warnings.warn(f"Invalid initial close price: {initial_close} - disabling buy & hold comparison")
                 show_buy_and_hold = False
             else:
-                buy_hold_returns = aligned_data['close'] / initial_close
+                buy_hold_returns = buy_hold_data['close'] / initial_close
                 buy_hold_equity = initial_capital * buy_hold_returns
 
+                # ===== CRITICAL ISSUE FIX #6: Index alignment verification =====
+                # Ensure buy & hold equity index matches equity curve index for plotting
+                if not buy_hold_equity.index.equals(equity_curve.index):
+                    warnings.warn(
+                        f"Buy & hold index doesn't match equity curve index "
+                        f"({len(buy_hold_equity)} vs {len(equity_curve)} points) - realigning for plotting"
+                    )
+                    buy_hold_equity = buy_hold_equity.reindex(equity_curve.index).ffill()
+                    if buy_hold_equity.isna().any():
+                        buy_hold_equity = buy_hold_equity.bfill()
+
                 # ===== HIGH SEVERITY ISSUE FIX #5: NaN propagation validation =====
-                # Verify buy & hold equity doesn't contain NaN
+                # Verify buy & hold equity doesn't contain NaN after alignment
                 if buy_hold_equity.isna().any():
-                    warnings.warn("Buy & hold equity calculation resulted in NaN values - disabling comparison")
+                    warnings.warn("Buy & hold equity contains NaN values after alignment - disabling comparison")
                     show_buy_and_hold = False
 
     # 子圖1: 權益曲線
@@ -193,21 +207,27 @@ def plot_backtest_results(
     axes[1].plot(data.index, data['close'].values,
                  linewidth=1.5, color='#333', label='收盤價', alpha=0.7)
 
+    # 計算實際的交易點
+    signal_changes = signals.diff()
+    trade_entry_signals = (signal_changes != 0) & (signals != 0)
+
     # 標記做多信號
-    long_signals = signals[signals == 1]
-    if len(long_signals) > 0:
-        axes[1].scatter(long_signals.index,
-                       data.loc[long_signals.index, 'close'],
+    long_entries = trade_entry_signals & (signals == 1)
+    if long_entries.any():
+        long_entry_indices = long_entries[long_entries].index
+        axes[1].scatter(long_entry_indices,
+                       data.loc[long_entry_indices, 'close'],
                        color='green', marker='^', s=100,
-                       label='做多', alpha=0.7, edgecolors='darkgreen')
+                       label='做多', alpha=0.9, edgecolors='darkgreen')
 
     # 標記做空信號
-    short_signals = signals[signals == -1]
-    if len(short_signals) > 0:
-        axes[1].scatter(short_signals.index,
-                       data.loc[short_signals.index, 'close'],
+    short_entries = trade_entry_signals & (signals == -1)
+    if short_entries.any():
+        short_entry_indices = short_entries[short_entries].index
+        axes[1].scatter(short_entry_indices,
+                       data.loc[short_entry_indices, 'close'],
                        color='red', marker='v', s=100,
-                       label='做空', alpha=0.7, edgecolors='darkred')
+                       label='做空', alpha=0.9, edgecolors='darkred')
 
     axes[1].set_ylabel('價格 ($)', fontsize=12)
     axes[1].set_title('價格與交易信號', fontsize=12, pad=10)
@@ -281,8 +301,8 @@ def plot_backtest_results(
     if save_path:
         plt.savefig(save_path, dpi=300, bbox_inches='tight')
         print(f"圖表已保存: {save_path}")
-
-    plt.show()
+    
+    plt.close()
 
 
 def plot_optimization_results(
@@ -452,8 +472,8 @@ def plot_optimization_results(
     if save_path:
         plt.savefig(save_path, dpi=300, bbox_inches='tight')
         print(f"圖表已保存: {save_path}")
-
-    plt.show()
+    
+    plt.close()
 
 
 def plot_mcpt_distribution(
@@ -545,7 +565,8 @@ def plot_mcpt_distribution(
     )
 
     ax.text(
-        0.02, 0.98, stats_text,
+        0.02, 0.98,
+        stats_text,
         transform=ax.transAxes,
         fontsize=10,
         verticalalignment='top',
@@ -563,7 +584,8 @@ def plot_mcpt_distribution(
     )
 
     ax.text(
-        0.98, 0.02, conclusion,
+        0.98, 0.02,
+        conclusion,
         transform=ax.transAxes,
         fontsize=11,
         fontweight='bold',
@@ -581,8 +603,9 @@ def plot_mcpt_distribution(
     if save_path:
         plt.savefig(save_path, dpi=300, bbox_inches='tight')
         print(f"圖表已保存: {save_path}")
-
-    plt.show()
+    
+    plt.close()
+    
 
 
 def plot_mcpt_distribution_medium_style(
@@ -702,7 +725,7 @@ def plot_mcpt_distribution_medium_style(
             ax.set_ylabel('Frequency', fontsize=12)
             ax.set_title(f'{title}. P-Value: {p_value:.4f}', fontsize=13, pad=10)
 
-            # 圖例
+            #圖例
             ax.legend(loc='best', fontsize=10)
 
             # 無網格線（Medium風格）
@@ -740,107 +763,127 @@ def plot_optimization_results_medium_style(
     results_df: pd.DataFrame,
     param_names: List[str],
     output_dir: Path,
-    metrics: List[str] = ['final_value', 'sharpe_ratio', 'profit_factor']
+    metrics: List[str] = ['sharpe_ratio', 'calmar_ratio', 'annual_return'],
+    sharpe_threshold: float = 0.0,
+    calmar_threshold: float = 0.0,
+    annual_return_threshold: float = 0.0,
+    max_drawdown_threshold: float = 0.0
 ):
     """
-    繪製參數優化結果 (Medium框架風格)
+    繪製參數優化結果 (Medium框架風格) - 已修改
 
-    為每個參數生成獨立的圖片，每張圖包含3個子圖：
-    1. 參數 vs Final Value (Max + Mean)
-    2. 參數 vs Sharpe Ratio (Max + Mean)
-    3. 參數 vs Profit Factor (Max + Mean)
+    為每個參數生成獨立的圖片，每張圖包含：
+    1. 主要指標的最佳表現 (藍線)
+    2. 符合標準的參數組合比例 (成功率, 綠線, 副Y軸)
 
     Args:
         results_df: 優化結果DataFrame
         param_names: 參數名稱列表
         output_dir: 保存目錄
         metrics: 要顯示的指標列表
-
-    Example:
-        >>> plot_optimization_results_medium_style(
-        ...     results_df=optimizer.results_df,
-        ...     param_names=['lookback'],
-        ...     output_dir=Path("results/optimization")
-        ... )
+        sharpe_threshold, ...: 用於計算成功率的閾值
     """
-    # Critical Bug Fix 1: Add empty DataFrame validation
     if results_df is None or results_df.empty:
         raise ValueError("results_df cannot be None or empty")
-
-    # Medium Bug Fix 6: Add data type validation
     if not isinstance(results_df, pd.DataFrame):
         raise TypeError(f"results_df must be a pandas DataFrame, got {type(results_df)}")
-
     if not isinstance(param_names, list) or len(param_names) == 0:
         raise ValueError("param_names must be a non-empty list")
-
     output_dir.mkdir(parents=True, exist_ok=True)
+
+    successful_df = results_df[
+        (results_df['sharpe_ratio'] >= sharpe_threshold) &
+        (results_df['calmar_ratio'] >= calmar_threshold) &
+        (results_df['annual_return'] >= annual_return_threshold) &
+        (results_df['max_drawdown'] >= max_drawdown_threshold)
+    ].copy()
+
+    # 如果沒有符合條件的結果，動態調整為 Sharpe > 0 或前 10% 最佳結果
+    if successful_df.empty:
+        successful_df = results_df[results_df['sharpe_ratio'] > 0].copy()
+        if successful_df.empty:
+            percentile_10 = results_df['sharpe_ratio'].quantile(0.9)
+            successful_df = results_df[results_df['sharpe_ratio'] > percentile_10].copy()
 
     for param in param_names:
         if param not in results_df.columns:
             continue
 
-        # Critical Bug Fix 3: Filter metrics first before creating subplots
         available_metrics = [m for m in metrics if m in results_df.columns]
-
-        if len(available_metrics) == 0:
+        if not available_metrics:
             print(f"警告: 參數 {param} 沒有可用的指標，跳過繪圖")
             continue
+        
+        is_float_param = pd.api.types.is_float_dtype(results_df[param])
+        
+        # 準備分組鍵
+        grouper = results_df[param].round(4) if is_float_param else results_df[param]
+        top_grouper = successful_df[param].round(4) if is_float_param else successful_df[param]
 
-        # Critical Bug Fix 2: Dynamic subplot creation based on available metrics
+        # 計算每個參數值的總試驗次數
+        total_counts = results_df.groupby(grouper, observed=True).size()
+
+        # 計算每個參數值的成功次數
+        if len(successful_df) > 0:
+            success_counts = successful_df.groupby(top_grouper, observed=True).size()
+        else:
+            success_counts = pd.Series(dtype=int)
+
+        # 使用 reindex 確保索引對齁，未出現的參數值成功率設為 0
+        success_counts = success_counts.reindex(total_counts.index, fill_value=0)
+
+        # 計算成功率（%），確保不會出現除以零
+        success_rate = (success_counts / total_counts * 100).fillna(0)
+
         n_metrics = len(available_metrics)
-        fig, axes = plt.subplots(1, n_metrics, figsize=(6 * n_metrics, 6))
-
-        # Handle single metric case (axes is not an array)
+        fig, axes = plt.subplots(1, n_metrics, figsize=(7 * n_metrics, 6))
         if n_metrics == 1:
             axes = [axes]
-
-        fig.suptitle(f'{param.replace("_", " ").title()} vs Performance Metrics', fontsize=16)
-
+        
+        fig.suptitle(f'{param.replace("_", " ").title()} vs Performance Metrics', fontsize=16, y=1.02)
+        
         fig_created = False
         try:
             for i, metric in enumerate(available_metrics):
                 ax = axes[i]
+                # 使用相同的 grouper 邏輯計算指標的最大值，與成功率對齐
+                grouped = results_df.groupby(grouper, observed=True)[metric].agg(['max']).reset_index()
+                # 重設列名以與後續代碼兼容
+                grouped.columns = [param, 'max']
 
-                # Group by parameter and calculate max, mean, min for each metric
-                grouped = results_df.groupby(param)[metric].agg(['max', 'mean', 'min']).reset_index()
+                ax.plot(grouped[param], grouped['max'], 'o-', linewidth=2, markersize=8, label='Best Performance', color='blue')
+                ax.set_xlabel(param.replace('_', ' ').title(), fontsize=12)
+                ax.set_ylabel(metric.replace('_', ' ').title(), color='blue', fontsize=12)
+                ax.tick_params(axis='y', labelcolor='blue')
+                ax.set_title(metric.replace('_', ' ').title(), fontsize=14)
+                ax.grid(True, alpha=0.3, axis='y')
 
-                # Plot max values (best performance for each parameter)
-                ax.plot(grouped[param], grouped['max'], 'o-', linewidth=2, markersize=8,
-                       label='Best Performance', color='blue')
-
-                # Plot mean values
-                ax.plot(grouped[param], grouped['mean'], 's--', linewidth=1, markersize=6,
-                       label='Average Performance', color='gray', alpha=0.7)
-
-                ax.set_xlabel(param.replace('_', ' ').title())
-                ax.set_ylabel(metric.replace('_', ' ').title())
-                ax.set_title(metric.replace('_', ' ').title())
-                ax.grid(True, alpha=0.3)
-
-                # Medium Bug Fix 4: Add NaN/Inf value handling when finding global best
                 valid_max = grouped['max'].replace([np.inf, -np.inf], np.nan).dropna()
-                if len(valid_max) > 0:
+                if not valid_max.empty:
                     global_best_idx = valid_max.idxmax()
                     best_x = grouped.loc[global_best_idx, param]
                     best_y = grouped.loc[global_best_idx, 'max']
-                    ax.scatter(best_x, best_y, color='red', s=150, zorder=5,
-                              label=f'Global Best: {best_x}', marker='*')
-                ax.legend()
+                    ax.scatter(best_x, best_y, color='red', s=150, zorder=5, label=f'Global Best: {best_x}', marker='*')
+                
+                ax2 = ax.twinx()
+                ax2.plot(grouped[param], success_rate.values, 'p--', linewidth=2, markersize=8, label='Success Rate', color='green', alpha=0.8)
+                ax2.set_ylabel('Success Rate (%)', color='green', fontsize=12)
+                ax2.tick_params(axis='y', labelcolor='green')
+                ax2.set_ylim(0, 105)
 
-            plt.tight_layout()
+                lines, labels = ax.get_legend_handles_labels()
+                lines2, labels2 = ax2.get_legend_handles_labels()
+                ax.legend(lines + lines2, labels + labels2, loc='best')
+
+            plt.tight_layout(rect=[0, 0, 1, 0.96])
             fig_created = True
 
-            # Medium Bug Fix 7: Add file I/O error handling with try-catch
             output_path = output_dir / f'{param}_comparison.png'
             try:
                 plt.savefig(output_path, dpi=300, bbox_inches='tight', facecolor='white')
             except (IOError, OSError) as e:
                 print(f"Error: Cannot save chart to {output_path}: {e}")
-            except Exception as e:
-                print(f"Error: Unexpected error while saving chart: {e}")
         finally:
-            # Minor Bug Fix 8: Add resource leak protection with finally block
             if fig_created:
                 plt.close()
 
@@ -857,7 +900,7 @@ def plot_walkforward_performance(
     繪製Walk-Forward分析的權益與回撤曲線
 
     包含2個子圖：
-    1. 策略權益曲線 vs 長期持有
+    1. 策略權益曲線 vs 長期持有（均从第一个OOS期开始）
     2. 策略回撤曲線 vs 長期持有回撤
 
     Args:
@@ -865,39 +908,116 @@ def plot_walkforward_performance(
         title: 圖表標題
         save_path: 保存路徑
         figsize: 圖表大小
-        combined_equity_curve: 合併的OOS權益曲線
-        buy_hold_equity_curve: 長期持有權益曲線
+        combined_equity_curve: 合併的OOS權益曲線（从第一个OOS期开始）
+        buy_hold_equity_curve: 長期持有權益曲線（从第一个OOS期开始）
     """
     # We must have equity curve data to proceed
     if combined_equity_curve is None or combined_equity_curve.empty:
         print("警告: 缺少權益曲線數據 (combined_equity_curve)，無法繪製圖表。")
+        
+        # 創建一個簡單的警告圖表以顯示信息
+        fig, ax = plt.subplots(figsize=figsize)
+        ax.text(0.5, 0.5, "無可用的回測數據\n(沒有進行任何交易)", 
+                ha='center', va='center', fontsize=16, transform=ax.transAxes,
+                bbox=dict(boxstyle='round', facecolor='yellow', alpha=0.7))
+        ax.set_title(title, fontsize=14, fontweight='bold')
+        ax.axis('off')
+        
+        if save_path:
+            try:
+                Path(save_path).parent.mkdir(parents=True, exist_ok=True)
+                plt.savefig(save_path, dpi=300, bbox_inches='tight')
+                print(f"警告圖表已保存: {save_path}")
+            except Exception as e:
+                print(f"無法保存圖表: {e}")
+        
+        plt.close()
+        return
+    
+    # Check if equity curve has insufficient data (only initial value, no trades)
+    if len(combined_equity_curve) <= 1:
+        print(f"警告: 權益曲線數據不足，僅有 {len(combined_equity_curve)} 個數據點（需要至少2個用於繪圖）")
+        
+        # 創建一個簡單的警告圖表
+        fig, ax = plt.subplots(figsize=figsize)
+        ax.text(0.5, 0.5, f"無法繪製圖表\n(僅有 {len(combined_equity_curve)} 個數據點，沒有進行任何交易)", 
+                ha='center', va='center', fontsize=16, transform=ax.transAxes,
+                bbox=dict(boxstyle='round', facecolor='yellow', alpha=0.7))
+        ax.set_title(title, fontsize=14, fontweight='bold')
+        ax.axis('off')
+        
+        if save_path:
+            try:
+                Path(save_path).parent.mkdir(parents=True, exist_ok=True)
+                plt.savefig(save_path, dpi=300, bbox_inches='tight')
+                print(f"警告圖表已保存: {save_path}")
+            except Exception as e:
+                print(f"無法保存圖表: {e}")
+        
+        plt.close()
+        return
+
+    # Validate initial equity value
+    if combined_equity_curve.iloc[0] == 0 or np.isnan(combined_equity_curve.iloc[0]) or np.isinf(combined_equity_curve.iloc[0]):
+        warnings.warn(f"Invalid initial strategy equity: {combined_equity_curve.iloc[0]} - cannot normalize")
         return
 
     fig, axes = plt.subplots(2, 1, figsize=figsize, sharex=True)
     fig.suptitle(title, fontsize=16, fontweight='bold')
 
+    # Normalize strategy curve
+    strategy_equity_normalized = combined_equity_curve / combined_equity_curve.iloc[0]
+
+    # Normalize BTC curve if available
+    btc_equity_normalized = None
+    if buy_hold_equity_curve is not None and not buy_hold_equity_curve.empty:
+        # Validate BTC initial value
+        if buy_hold_equity_curve.iloc[0] == 0 or np.isnan(buy_hold_equity_curve.iloc[0]) or np.isinf(buy_hold_equity_curve.iloc[0]):
+            warnings.warn(f"Invalid initial BTC equity: {buy_hold_equity_curve.iloc[0]} - disabling BTC comparison")
+        else:
+            # Check date alignment
+            strategy_start = combined_equity_curve.index[0]
+            btc_start = buy_hold_equity_curve.index[0]
+
+            if strategy_start != btc_start:
+                warnings.warn(
+                    f"Date misalignment detected: Strategy={strategy_start}, BTC={btc_start}. "
+                    f"Aligning to common start date."
+                )
+                # Realign to common start date
+                common_start = max(strategy_start, btc_start)
+                strategy_equity_normalized = combined_equity_curve.loc[common_start:] / combined_equity_curve.loc[common_start]
+                btc_equity_normalized = buy_hold_equity_curve.loc[common_start:] / buy_hold_equity_curve.loc[common_start]
+            else:
+                btc_equity_normalized = buy_hold_equity_curve / buy_hold_equity_curve.iloc[0]
+
     # Subplot 1: Equity Curve Comparison
+    NORMALIZED_INITIAL_CAPITAL = 1.0
     ax1 = axes[0]
-    ax1.plot(combined_equity_curve.index, combined_equity_curve.values,
+    ax1.plot(strategy_equity_normalized.index, strategy_equity_normalized.values,
                  linewidth=2, color='#2E86AB', label='策略權益')
 
-    if buy_hold_equity_curve is not None and not buy_hold_equity_curve.empty:
-        ax1.plot(buy_hold_equity_curve.index, buy_hold_equity_curve.values,
-                     linewidth=2, color='orange', label='長期持有', alpha=0.7, linestyle='--')
+    if btc_equity_normalized is not None:
+        ax1.plot(btc_equity_normalized.index, btc_equity_normalized.values,
+                     linewidth=2, color='orange', label='BTC持有', alpha=0.7, linestyle='--')
 
-    ax1.axhline(y=combined_equity_curve.iloc[0], color='gray',
-                    linestyle='--', alpha=0.5, label='初始資金')
-    ax1.set_ylabel('權益 ($)', fontsize=12)
-    ax1.set_title('Walk-Forward 權益曲線比較', fontsize=12, pad=10)
+    ax1.axhline(y=NORMALIZED_INITIAL_CAPITAL, color='gray',
+                    linestyle='--', alpha=0.5, label=f'初始资金 ({NORMALIZED_INITIAL_CAPITAL})')
+    ax1.set_ylabel('归一化权益', fontsize=12)
+    ax1.set_title('Walk-Forward 权益曲线比较（从第一个OOS期开始）', fontsize=12, pad=10)
     ax1.legend(loc='best')
     ax1.grid(True, alpha=0.3)
 
     # Add final return text
-    final_return = (combined_equity_curve.iloc[-1] / combined_equity_curve.iloc[0] - 1) * 100
-    text_content = f'策略最終收益率: {final_return:.2f}%'
-    if buy_hold_equity_curve is not None and not buy_hold_equity_curve.empty:
-        bh_final_return = (buy_hold_equity_curve.iloc[-1] / buy_hold_equity_curve.iloc[0] - 1) * 100
-        text_content += f'\n長期持有收益率: {bh_final_return:.2f}%'
+    # Calculate the final return from the original, unaligned, unnormalized equity curve
+    # This ensures the value matches the summary statistics printed to the console.
+    final_return_overall = (combined_equity_curve.iloc[-1] / combined_equity_curve.iloc[0] - 1) * 100
+    text_content = f'策略最终收益率: {final_return_overall:.2f}%'
+    
+    if btc_equity_normalized is not None:
+        # The benchmark return should be calculated from its own normalized curve
+        bh_final_return = (btc_equity_normalized.iloc[-1] - NORMALIZED_INITIAL_CAPITAL) * 100
+        text_content += f'\nBTC持有收益率: {bh_final_return:.2f}%'
 
     ax1.text(
         0.02, 0.95, text_content,
@@ -909,16 +1029,12 @@ def plot_walkforward_performance(
 
     # Subplot 2: Drawdown Curve Comparison
     ax2 = axes[1]
-    
-    # Calculate strategy drawdown
-    if combined_equity_curve.iloc[0] == 0 or np.isnan(combined_equity_curve.iloc[0]):
-        drawdown = pd.Series(0, index=combined_equity_curve.index)
-    else:
-        cumulative_returns = combined_equity_curve / combined_equity_curve.iloc[0]
-        rolling_max = cumulative_returns.expanding().max()
-        with np.errstate(divide='ignore', invalid='ignore'):
-            drawdown = (cumulative_returns - rolling_max) / rolling_max
-        drawdown = drawdown.replace([np.inf, -np.inf], 0).fillna(0)
+
+    # Calculate strategy drawdown using normalized curve
+    rolling_max = strategy_equity_normalized.expanding().max()
+    with np.errstate(divide='ignore', invalid='ignore'):
+        drawdown = (strategy_equity_normalized - rolling_max) / rolling_max
+    drawdown = drawdown.replace([np.inf, -np.inf], 0).fillna(0)
 
     ax2.fill_between(drawdown.index, drawdown.values * 100, 0,
                          color='#2E86AB', alpha=0.3, label='策略回撤')
@@ -928,19 +1044,15 @@ def plot_walkforward_performance(
     ax2.axhline(y=max_dd, color='#2E86AB', linestyle='--',
                    alpha=0.5, label=f'策略最大回撤: {max_dd:.2f}%')
 
-    # Calculate Buy & Hold drawdown
-    if buy_hold_equity_curve is not None and not buy_hold_equity_curve.empty:
-        if buy_hold_equity_curve.iloc[0] == 0 or np.isnan(buy_hold_equity_curve.iloc[0]):
-            bh_drawdown = pd.Series(0, index=buy_hold_equity_curve.index)
-        else:
-            bh_cumulative_returns = buy_hold_equity_curve / buy_hold_equity_curve.iloc[0]
-            bh_rolling_max = bh_cumulative_returns.expanding().max()
-            with np.errstate(divide='ignore', invalid='ignore'):
-                bh_drawdown = (bh_cumulative_returns - bh_rolling_max) / bh_rolling_max
-            bh_drawdown = bh_drawdown.replace([np.inf, -np.inf], 0).fillna(0)
+    # Calculate Buy & Hold drawdown using normalized curve
+    if btc_equity_normalized is not None:
+        bh_rolling_max = btc_equity_normalized.expanding().max()
+        with np.errstate(divide='ignore', invalid='ignore'):
+            bh_drawdown = (btc_equity_normalized - bh_rolling_max) / bh_rolling_max
+        bh_drawdown = bh_drawdown.replace([np.inf, -np.inf], 0).fillna(0)
 
         ax2.fill_between(bh_drawdown.index, bh_drawdown.values * 100, 0,
-                             color='orange', alpha=0.2, label='長期持有回撤')
+                             color='orange', alpha=0.2, label='BTC持有回撤')
         ax2.plot(bh_drawdown.index, bh_drawdown.values * 100,
                     color='orange', linewidth=1.5, linestyle='--', alpha=0.7)
         bh_max_dd = bh_drawdown.min() * 100
@@ -958,8 +1070,8 @@ def plot_walkforward_performance(
     if save_path:
         plt.savefig(save_path, dpi=300, bbox_inches='tight')
         print(f"圖表已保存: {save_path}")
-
-    plt.show()
+    
+    plt.close()
 
 
 # ==================== 輔助函數 ====================
