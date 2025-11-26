@@ -123,47 +123,40 @@ def run_optimization(
     slippage: float,
     periods_per_year: int,
     n_trials: int = 500,
-    stop_loss_fee: float = 0.00055
+    stop_loss_fee: float = 0.00055,
+    n_jobs: int = -1
 ) -> pd.DataFrame:
     """運行參數優化"""
-    total_combinations = np.prod([len(v) for v in param_grid.values()])
+    print("→ 生成所有可能的參數組合...")
+    all_combinations = generate_all_combinations(param_grid)
+    total_combinations = len(all_combinations)
     print(f"參數空間大小: {total_combinations:,} 個組合")
 
-    use_random_search = total_combinations > n_trials
-    if use_random_search:
-        print(f"→ 使用隨機搜索，嘗試生成 {n_trials:,} 個組合")
-        # To avoid too many duplicates in random search, use a set
-        unique_combos = set()
-        max_attempts = n_trials * 5 # Try up to 5x to find enough valid combos
-        attempts = 0
-        while len(unique_combos) < n_trials and attempts < max_attempts:
-            params = {name: random.choice(list(values)) for name, values in param_grid.items()}
-            param_tuple = tuple(sorted(params.items()))
-            unique_combos.add(param_tuple)
-            attempts += 1
-        param_combinations = [dict(p) for p in unique_combos]
-
-    else:
-        print("→ 使用完整網格搜索")
-        param_combinations = generate_all_combinations(param_grid)
-
-    print(f"\n生成了 {len(param_combinations):,} 個待評估的組合。")
-
-    # 過濾掉 short_entry_quantile > long_entry_quantile 的無效組合
+    # 1. 先移除 short_entry_quantile > long_entry_quantile 的無效組合
+    param_combinations = all_combinations
     if "long_entry_quantile" in param_grid and "short_entry_quantile" in param_grid:
         original_count = len(param_combinations)
-        # 只保留 long_q >= short_q 的組合，允許相等
+        # Corrected logic: Keep combinations where long_q >= short_q
         param_combinations = [
             p for p in param_combinations
-            if p.get('long_entry_quantile', 0.0) >= p.get('short_entry_quantile', 1.0)
+            if p.get('long_entry_quantile', 1.0) >= p.get('short_entry_quantile', 0.0)
         ]
         filtered_count = original_count - len(param_combinations)
         if filtered_count > 0:
             print(f"過濾掉 {filtered_count:,} 個無效組合 (short_q > long_q)。")
 
     if not param_combinations:
-        print("\n錯誤：沒有有效的參數組合可供評估。請檢查您的 PARAM_GRID。")
+        print("\n錯誤：過濾後沒有有效的參數組合可供評估。請檢查您的 PARAM_GRID。")
         return pd.DataFrame()
+
+    print(f"有效組合數: {len(param_combinations):,}")
+
+    # 2. 判斷參數組合是否 > N_TRIALS
+    if len(param_combinations) > n_trials:
+        print(f"→ 有效組合數大於 N_TRIALS ({n_trials})，將從中隨機抽樣。")
+        param_combinations = random.sample(param_combinations, n_trials)
+    else:
+        print("→ 使用所有有效組合進行評估。")
 
     print(f"最終評估組合數: {len(param_combinations):,}\n")
 
@@ -173,11 +166,22 @@ def run_optimization(
         "periods_per_year": periods_per_year, "stop_loss_fee": stop_loss_fee
     }
     
+    # 3. 檢查 N_JOBS 是否有作用並行化
+    if n_jobs == -1:
+        n_jobs = os.cpu_count() or 1
+    
+    print(f"使用 {n_jobs} 個核心進行並行計算...")
+
     results = []
-    for params in tqdm(param_combinations, desc="參數優化", unit="組合", ncols=100):
-        result = evaluate_single_params(params, **kwargs)
-        results.append(result)
+    with ProcessPoolExecutor(max_workers=n_jobs) as executor:
+        # 使用 partial 函數將固定參數傳遞給 evaluate_single_params
+        eval_func = partial(evaluate_single_params, **kwargs)
         
+        # 使用 tqdm 顯示進度
+        results_iterator = executor.map(eval_func, param_combinations)
+        for result in tqdm(results_iterator, total=len(param_combinations), desc="參數優化", unit="組合", ncols=100):
+            results.append(result)
+            
     return pd.DataFrame(results)
 
 
@@ -213,13 +217,11 @@ def filter_top_params(
         cond_max_drawdown
     ].copy()
 
-    # 如果沒有參數滿足所有條件，動態調整為只篩選 Sharpe > 0 的參數
+    # 如果沒有參數滿足所有條件，返回空 DataFrame（主函數會自動選擇夏普比率最高的參數）
     if filtered_df.empty:
-        filtered_df = valid_df[valid_df['sharpe_ratio'] > 0].copy()
-        if filtered_df.empty:
-            # 若仍無結果，使用前 10% 表現最好的參數
-            percentile_10 = valid_df['sharpe_ratio'].quantile(0.9)
-            filtered_df = valid_df[valid_df['sharpe_ratio'] > percentile_10].copy()
+        print(f"⚠️  警告：沒有任何參數同時滿足 Sharpe > {sharpe_threshold}, Calmar > {calmar_threshold}, 年化報酬 > {annual_return_threshold:.0%}, 最大回撤 < {-max_drawdown_threshold:.0%}")
+        print(f"    將從所有有效結果中選擇夏普比率最高的參數組合")
+        return pd.DataFrame()
 
     if not filtered_df.empty:
         filtered_df['robustness_score'] = filtered_df.apply(calculate_robustness_score, axis=1)
@@ -258,15 +260,15 @@ def main():
     END_DATE = "2024-12-31"
 
     PARAM_GRID = {
-        "window": range(150, 190, 2),                            # 因子計算窗口（簡化為 5 個值用於快速測試）
-        "threshold_window": range(375, 405, 1),                 # 門檻計算窗口（簡化為 4 個值用於快速測試）
+        "window": range(200, 220, 1),                            # 因子計算窗口（簡化為 5 個值用於快速測試）
+        "threshold_window": range(400, 420, 1),                 # 門檻計算窗口（簡化為 4 個值用於快速測試）
         "long_entry_quantile": np.arange(0.1, 1, 0.2),      # 做多百分位（簡化為 2 個值）
         "short_entry_quantile": np.arange(0.1, 1, 0.2),     # 做空百分位（簡化為 2 個值）
         "leverage": range(1, 2),                                        # 基礎槓桿
         "capital_allocation": np.arange(1, 1.01, 0.1)         # 資金分配
     }
 
-    N_TRIALS = 1000  # 簡化參數範圍後，減少試驗次數以加快速度
+    N_TRIALS = 10000  # 簡化參數範圍後，減少試驗次數以加快速度
     SHARPE_THRESHOLD = 1.25  # 降低閾值以增加找到符合條件結果的機會
     CALMAR_THRESHOLD = 2  # 降低閾值
     ANNUAL_RETURN_THRESHOLD = 0.5  # 不要求最小報酬
@@ -293,7 +295,7 @@ def main():
     results_df = run_optimization(
         param_grid=PARAM_GRID, data=df, transaction_cost=TRANSACTION_COST,
         slippage=SLIPPAGE, periods_per_year=periods_per_year, n_trials=N_TRIALS,
-        stop_loss_fee=STOP_LOSS_FEE
+        stop_loss_fee=STOP_LOSS_FEE, n_jobs=N_JOBS
     )
     results_df.to_csv("debug_results.csv", index=False)
     print(f"  Evaluated {len(results_df):,} combinations")

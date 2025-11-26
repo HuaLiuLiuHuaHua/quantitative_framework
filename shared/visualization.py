@@ -763,7 +763,7 @@ def plot_optimization_results_medium_style(
     results_df: pd.DataFrame,
     param_names: List[str],
     output_dir: Path,
-    metrics: List[str] = ['sharpe_ratio', 'calmar_ratio', 'annual_return'],
+    metrics: List[str] = ['sharpe_ratio', 'calmar_ratio', 'annual_return', 'max_drawdown'],
     sharpe_threshold: float = 0.0,
     calmar_threshold: float = 0.0,
     annual_return_threshold: float = 0.0,
@@ -772,9 +772,9 @@ def plot_optimization_results_medium_style(
     """
     繪製參數優化結果 (Medium框架風格) - 已修改
 
-    為每個參數生成獨立的圖片，每張圖包含：
+    為每個參數生成獨立的圖片，每張圖包含多個子圖 (每個指標一個)。
     1. 主要指標的最佳表現 (藍線)
-    2. 符合標準的參數組合比例 (成功率, 綠線, 副Y軸)
+    2. 符合該指標標準的參數組合比例 (成功率, 綠條, 副Y軸)
 
     Args:
         results_df: 優化結果DataFrame
@@ -791,19 +791,13 @@ def plot_optimization_results_medium_style(
         raise ValueError("param_names must be a non-empty list")
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    successful_df = results_df[
-        (results_df['sharpe_ratio'] >= sharpe_threshold) &
-        (results_df['calmar_ratio'] >= calmar_threshold) &
-        (results_df['annual_return'] >= annual_return_threshold) &
-        (results_df['max_drawdown'] >= max_drawdown_threshold)
-    ].copy()
-
-    # 如果沒有符合條件的結果，動態調整為 Sharpe > 0 或前 10% 最佳結果
-    if successful_df.empty:
-        successful_df = results_df[results_df['sharpe_ratio'] > 0].copy()
-        if successful_df.empty:
-            percentile_10 = results_df['sharpe_ratio'].quantile(0.9)
-            successful_df = results_df[results_df['sharpe_ratio'] > percentile_10].copy()
+    # 將指標和對應的門檻打包
+    thresholds = {
+        'sharpe_ratio': sharpe_threshold,
+        'calmar_ratio': calmar_threshold,
+        'annual_return': annual_return_threshold,
+        'max_drawdown': max_drawdown_threshold
+    }
 
     for param in param_names:
         if param not in results_df.columns:
@@ -815,30 +809,11 @@ def plot_optimization_results_medium_style(
             continue
         
         is_float_param = pd.api.types.is_float_dtype(results_df[param])
-        
-        # 準備分組鍵
         grouper = results_df[param].round(4) if is_float_param else results_df[param]
-        top_grouper = successful_df[param].round(4) if is_float_param else successful_df[param]
-
-        # 計算每個參數值的總試驗次數
-        total_counts = results_df.groupby(grouper, observed=True).size()
-
-        # 計算每個參數值的成功次數
-        if len(successful_df) > 0:
-            success_counts = successful_df.groupby(top_grouper, observed=True).size()
-        else:
-            success_counts = pd.Series(dtype=int)
-
-        # 使用 reindex 確保索引對齁，未出現的參數值成功率設為 0
-        success_counts = success_counts.reindex(total_counts.index, fill_value=0)
-
-        # 計算成功率（%），確保不會出現除以零
-        success_rate = (success_counts / total_counts * 100).fillna(0)
 
         n_metrics = len(available_metrics)
-        fig, axes = plt.subplots(1, n_metrics, figsize=(7 * n_metrics, 6))
-        if n_metrics == 1:
-            axes = [axes]
+        fig, axes = plt.subplots(1, n_metrics, figsize=(7 * n_metrics, 6), squeeze=False)
+        axes = axes.flatten()
         
         fig.suptitle(f'{param.replace("_", " ").title()} vs Performance Metrics', fontsize=16, y=1.02)
         
@@ -846,27 +821,49 @@ def plot_optimization_results_medium_style(
         try:
             for i, metric in enumerate(available_metrics):
                 ax = axes[i]
-                # 使用相同的 grouper 邏輯計算指標的最大值，與成功率對齐
-                grouped = results_df.groupby(grouper, observed=True)[metric].agg(['max']).reset_index()
-                # 重設列名以與後續代碼兼容
-                grouped.columns = [param, 'max']
+                
+                # --- 核心邏輯修改 ---
+                # 1. 計算每個指標的最大值 (Best Performance)
+                grouped_max = results_df.groupby(grouper, observed=True)[metric].max()
 
-                ax.plot(grouped[param], grouped['max'], 'o-', linewidth=2, markersize=8, label='Best Performance', color='blue')
+                # 2. 根據當前指標的門檻，獨立計算成功率
+                metric_threshold = thresholds.get(metric, 0.0)
+                condition = results_df[metric] >= metric_threshold
+                
+                successful_df = results_df[condition]
+                
+                total_counts = results_df.groupby(grouper, observed=True).size()
+                if not successful_df.empty:
+                    success_counts = successful_df.groupby(grouper, observed=True).size()
+                else:
+                    success_counts = pd.Series(dtype=int)
+                
+                success_counts = success_counts.reindex(total_counts.index, fill_value=0)
+                success_rate = (success_counts / total_counts * 100).fillna(0)
+                # --- 核心邏輯修改結束 ---
+
+                # 繪製最佳表現 (藍色折線圖)
+                ax.plot(grouped_max.index, grouped_max.values, 'o-', linewidth=2, markersize=8, label='Best Performance', color='blue')
                 ax.set_xlabel(param.replace('_', ' ').title(), fontsize=12)
                 ax.set_ylabel(metric.replace('_', ' ').title(), color='blue', fontsize=12)
                 ax.tick_params(axis='y', labelcolor='blue')
                 ax.set_title(metric.replace('_', ' ').title(), fontsize=14)
-                ax.grid(True, alpha=0.3, axis='y')
+                ax.grid(True, alpha=0.3, axis='y', linestyle='--')
+                
+                # 添加門檻水平線
+                ax.axhline(y=metric_threshold, color='red', linestyle='--', linewidth=1.5, label=f'Threshold ({metric_threshold:.2f})')
 
-                valid_max = grouped['max'].replace([np.inf, -np.inf], np.nan).dropna()
+                # 標記全局最佳點
+                valid_max = grouped_max.replace([np.inf, -np.inf], np.nan).dropna()
                 if not valid_max.empty:
                     global_best_idx = valid_max.idxmax()
-                    best_x = grouped.loc[global_best_idx, param]
-                    best_y = grouped.loc[global_best_idx, 'max']
-                    ax.scatter(best_x, best_y, color='red', s=150, zorder=5, label=f'Global Best: {best_x}', marker='*')
+                    best_y = valid_max.max()
+                    ax.scatter(global_best_idx, best_y, color='red', s=150, zorder=5, label=f'Global Best: {global_best_idx}', marker='*')
                 
+                # 繪製成功率 (綠色條形圖)
                 ax2 = ax.twinx()
-                ax2.plot(grouped[param], success_rate.values, 'p--', linewidth=2, markersize=8, label='Success Rate', color='green', alpha=0.8)
+                ax2.bar(success_rate.index, success_rate.values, width=np.mean(np.diff(success_rate.index))*0.4 if len(success_rate.index) > 1 else 0.4,
+                      label='Success Rate', color='green', alpha=0.5)
                 ax2.set_ylabel('Success Rate (%)', color='green', fontsize=12)
                 ax2.tick_params(axis='y', labelcolor='green')
                 ax2.set_ylim(0, 105)

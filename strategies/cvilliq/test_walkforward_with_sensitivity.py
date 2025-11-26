@@ -171,43 +171,65 @@ def filter_top_params(
     sharpe_threshold: float = 1.25,
     calmar_threshold: float = 2.5,
     annual_return_threshold: float = 0.5,
-    max_drawdown_threshold: float = 0.2
+    max_drawdown_threshold: float = -0.2
 ) -> pd.DataFrame:
     """
-    篩選符合條件的優質參數組合
+    篩選符合條件的優質參數組合（與 test_optimization_with_sensitivity.py 完全一致）
 
     條件:
     - sharpe_ratio > sharpe_threshold (default 1.25)
     - calmar_ratio > calmar_threshold (default 2.5)
     - annual_return > annual_return_threshold (default 50%)
-    - max_drawdown < max_drawdown_threshold (default 20%)
+    - max_drawdown > max_drawdown_threshold (default -20%)
 
     Args:
         results_df: 優化結果DataFrame
         sharpe_threshold: 夏普比率閾值
         calmar_threshold: 卡瑪比率閾值
         annual_return_threshold: 年報酬閾值
-        max_drawdown_threshold: 最大回撤閾值
+        max_drawdown_threshold: 最大回撤閾值（負數，如 -0.2 表示 -20%）
 
     Returns:
-        符合條件的參數組合，按夏普比率降序排列
+        符合條件的參數組合，按穩健性分數降序排列
     """
     # 過濾失敗結果
     valid_df = results_df[results_df['sharpe_ratio'] > FAILED_SHARPE].copy()
-
     if valid_df.empty:
+        print("Warning: No valid optimization results found.")
         return pd.DataFrame()
 
-    # 應用所有篩選條件
+    cond_sharpe = valid_df['sharpe_ratio'] > sharpe_threshold
+    cond_calmar = valid_df['calmar_ratio'] > calmar_threshold
+    cond_annual_return = valid_df['annual_return'] > annual_return_threshold
+    cond_max_drawdown = valid_df['max_drawdown'] > max_drawdown_threshold
+
     filtered_df = valid_df[
-        (valid_df['sharpe_ratio'] > sharpe_threshold) &
-        (valid_df['calmar_ratio'] > calmar_threshold) &
-        (valid_df['annual_return'] > annual_return_threshold) &
-        (valid_df['max_drawdown'] > -max_drawdown_threshold)
+        cond_sharpe &
+        cond_calmar &
+        cond_annual_return &
+        cond_max_drawdown
     ].copy()
 
-    # 按夏普比率降序排列
-    filtered_df = filtered_df.sort_values('sharpe_ratio', ascending=False)
+    # 如果沒有參數滿足所有條件，返回空 DataFrame（主函數會自動選擇夏普比率最高的參數）
+    if filtered_df.empty:
+        print(f"⚠️  警告：沒有任何參數同時滿足 Sharpe > {sharpe_threshold}, Calmar > {calmar_threshold}, 年化報酬 > {annual_return_threshold:.0%}, 最大回撤 < {-max_drawdown_threshold:.0%}")
+        print(f"    將從所有有效結果中選擇夏普比率最高的參數組合")
+        return pd.DataFrame()
+
+    if not filtered_df.empty:
+        # 計算穩健性分數
+        def calculate_robustness_score(row: pd.Series) -> float:
+            max_dd_abs = abs(float(row['max_drawdown']))
+            sharpe = float(row['sharpe_ratio'])
+            calmar = float(row['calmar_ratio'])
+            annual_ret = float(row['annual_return'])
+            return sharpe * 0.4 + calmar * 0.3 + min(annual_ret, 2.0) * 0.1 - max_dd_abs * 0.2
+
+        filtered_df['robustness_score'] = filtered_df.apply(calculate_robustness_score, axis=1)
+        filtered_df = filtered_df.sort_values('robustness_score', ascending=False)
+
+    print(f"\n篩選條件: 夏普 > {sharpe_threshold}, 卡瑪 > {calmar_threshold}, 年化報酬 > {annual_return_threshold:.0%}, 最大回撤 > {max_drawdown_threshold:.0%}")
+    print(f"符合條件的參數組合: {len(filtered_df)} 個")
 
     return filtered_df
 
@@ -523,33 +545,39 @@ def optimize_window_with_sensitivity(
         logger.error(f"訓練數據為空: {train_start} - {train_end}")
         return {}, pd.DataFrame(), {}
 
-    # 決定搜索策略
-    total_combinations = np.prod([len(list(v)) for v in param_grid.values()])
-    use_grid_search = total_combinations <= n_trials
+    # 生成所有可能的參數組合
+    print("→ 生成所有可能的參數組合...")
+    all_combinations = generate_all_combinations(param_grid)
+    total_combinations = len(all_combinations)
+    print(f"參數空間大小: {total_combinations:,} 個組合")
 
-    if use_grid_search:
-        logger.info(f"使用網格搜索 (總組合: {total_combinations})")
-        param_combinations = generate_all_combinations(param_grid)
-    else:
-        logger.info(f"使用隨機搜索 (抽樣 {n_trials} / {total_combinations} 個組合)")
-        param_combinations = random_sample_combinations(param_grid, n_trials)
-
-    # 過濾掉 short_entry_quantile >= long_entry_quantile 的無效組合
+    # 1. 先移除 short_entry_quantile > long_entry_quantile 的無效組合
+    param_combinations = all_combinations
     if "long_entry_quantile" in param_grid and "short_entry_quantile" in param_grid:
         original_count = len(param_combinations)
+        # 保留 long_q >= short_q 的組合
         param_combinations = [
             p for p in param_combinations
-            if p['short_entry_quantile'] < p['long_entry_quantile']
+            if p.get('long_entry_quantile', 1.0) >= p.get('short_entry_quantile', 0.0)
         ]
         filtered_count = original_count - len(param_combinations)
         if filtered_count > 0:
-            logger.info(f"過濾掉 {filtered_count} 個無效組合 (short_q >= long_q)")
-    
+            print(f"過濾掉 {filtered_count:,} 個無效組合 (short_q > long_q)。")
+
     if not param_combinations:
-        logger.error("沒有有效的參數組合可供評估，請檢查 PARAM_GRID。")
+        print("\n錯誤：過濾後沒有有效的參數組合可供評估。請檢查您的 PARAM_GRID。")
         return {}, pd.DataFrame(), {}
-    
-    logger.info(f"最終評估組合數: {len(param_combinations)}")
+
+    print(f"有效組合數: {len(param_combinations):,}")
+
+    # 2. 判斷參數組合是否 > N_TRIALS
+    if len(param_combinations) > n_trials:
+        print(f"→ 有效組合數大於 N_TRIALS ({n_trials})，將從中隨機抽樣。")
+        param_combinations = random.sample(param_combinations, n_trials)
+    else:
+        print("→ 使用所有有效組合進行評估。")
+
+    print(f"最終評估組合數: {len(param_combinations):,}\n")
 
 
     # 準備評估參數
@@ -608,19 +636,19 @@ def optimize_window_with_sensitivity(
             logger.warning(f"Could not convert param {k} for supplement_neighborhood. Error: {e}")
             best_params_temp[k] = results_df.loc[best_idx, k]
 
-    if not use_grid_search:
-        results_df = supplement_neighborhood_for_best(
-            best_params=best_params_temp,
-            param_grid=param_grid,
-            results_df=results_df,
-            **eval_kwargs
-        )
+    # Walk-forward 分析總是補充鄰域點（因為通常使用隨機搜索）
+    results_df = supplement_neighborhood_for_best(
+        best_params=best_params_temp,
+        param_grid=param_grid,
+        results_df=results_df,
+        **eval_kwargs
+    )
 
     # ========== 步驟1: 篩選符合所有條件的優質參數 ==========
     # 從kwargs獲取篩選閾值
     calmar_threshold = kwargs.get('calmar_threshold', 2.5)
     annual_return_threshold = kwargs.get('annual_return_threshold', 0.5)
-    max_drawdown_threshold = kwargs.get('max_drawdown_threshold', 0.2)
+    max_drawdown_threshold = kwargs.get('max_drawdown_threshold', 0.3)  # 正數，如 0.3 表示 30%
 
     # 首先篩選只符合夏普比率條件的參數
     sharpe_only_df = results_df[results_df['sharpe_ratio'] > sharpe_threshold].copy()
@@ -631,7 +659,7 @@ def optimize_window_with_sensitivity(
         sharpe_threshold=sharpe_threshold,
         calmar_threshold=calmar_threshold,
         annual_return_threshold=annual_return_threshold,
-        max_drawdown_threshold=max_drawdown_threshold
+        max_drawdown_threshold=-max_drawdown_threshold  # 傳遞負數給 filter_top_params
     )
     print(f"  ├─ 同時符合所有條件: {len(top_params_df)} 個組合")
 
@@ -852,16 +880,16 @@ def main():
     # - 新版範圍縮小到中間區域，避免極端保守參數
     # - 預期空倉率降至 35-45%，交易頻率提升 20-30%
     PARAM_GRID = {
-        "window": range(150, 190, 2),                            # 因子計算窗口
-        "threshold_window": range(375, 405, 1),                  # 門檻計算窗口
-        "long_entry_quantile": np.arange(0.1, 1, 0.1),       # 做多百分位：[0.40, 0.45, 0.50, 0.55, 0.60, 0.65]
-        "short_entry_quantile": np.arange(0.1, 1, 0.1),    # 做空百分位：[0.35, 0.40, 0.45, 0.50, 0.55, 0.60]
+        "window": range(200, 220, 1),                            # 因子計算窗口
+        "threshold_window": range(400, 420, 1),                  # 門檻計算窗口
+        "long_entry_quantile": np.arange(0.1, 1, 0.2),       # 做多百分位：[0.40, 0.45, 0.50, 0.55, 0.60, 0.65]
+        "short_entry_quantile": np.arange(0.1, 1, 0.2),    # 做空百分位：[0.35, 0.40, 0.45, 0.50, 0.55, 0.60]
         "leverage": [1],                                         # 基礎槓桿
-        "capital_allocation": np.arange(1, 1.1, 0.1)           # 資金分配
+        "capital_allocation": np.arange(1, 1.01, 0.1)           # 資金分配
     }
 
     # 隨機搜索次數
-    N_TRIALS = 1000
+    N_TRIALS = 10000
 
     # 敏感性分析配置
     SHARPE_THRESHOLD = 1.25
@@ -869,7 +897,7 @@ def main():
     # 頂部參數篩選條件（與 test_optimization_with_sensitivity.py 一致）
     CALMAR_THRESHOLD = 2
     ANNUAL_RETURN_THRESHOLD = 0.5  # 50%
-    MAX_DRAWDOWN_THRESHOLD = 0.3   # 20%
+    MAX_DRAWDOWN_THRESHOLD = 0.3   # 30% (允許最大回撤)
 
     # 交易成本
     TRANSACTION_COST = 0.0002
