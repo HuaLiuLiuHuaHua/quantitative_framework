@@ -255,17 +255,17 @@ def main():
     print()
 
     # ========== 用戶配置區 ==========
-    DATA_CONFIG = "BTCUSDT_1h"
+    DATA_CONFIG = "ETHUSDT_1h"
     START_DATE = "2022-10-01"
     END_DATE = "2024-12-31"
 
     PARAM_GRID = {
-        "window": range(200, 220, 1),                            # 因子計算窗口（簡化為 5 個值用於快速測試）
-        "threshold_window": range(400, 420, 1),                 # 門檻計算窗口（簡化為 4 個值用於快速測試）
-        "long_entry_quantile": np.arange(0.1, 1, 0.2),      # 做多百分位（簡化為 2 個值）
-        "short_entry_quantile": np.arange(0.1, 1, 0.2),     # 做空百分位（簡化為 2 個值）
+        "window": range(100, 300, 2),                            # 因子計算窗口（簡化為 5 個值用於快速測試）
+        "threshold_window": range(200, 500, 3),                 # 門檻計算窗口（簡化為 4 個值用於快速測試）
+        "long_entry_quantile": np.arange(0.5, 0.6, 0.2),      # 做多百分位（簡化為 2 個值）
+        "short_entry_quantile": np.arange(0.5, 0.6, 0.2),     # 做空百分位（簡化為 2 個值）
         "leverage": range(1, 2),                                        # 基礎槓桿
-        "capital_allocation": np.arange(1, 1.01, 0.1)         # 資金分配
+        "capital_allocation": np.arange(1, 1.01, 0.3)         # 資金分配
     }
 
     N_TRIALS = 10000  # 簡化參數範圍後，減少試驗次數以加快速度
