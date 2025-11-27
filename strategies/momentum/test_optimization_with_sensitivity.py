@@ -30,7 +30,7 @@ if str(project_root) not in sys.path:
 from strategies.momentum.strategy import MomentumStrategy
 from shared.backtest import BacktestEngine
 from shared.data_loader import load_local_data
-from shared.visualization import plot_backtest_results
+from shared.visualization import plot_backtest_results, plot_optimization_results_medium_style
 
 
 # ==================== 輔助函數 ====================
@@ -72,12 +72,14 @@ def evaluate_single_params(params: dict, **kwargs) -> dict:
 
         metrics = results.get('metrics', {})
         sharpe_ratio = metrics.get('sharpe_ratio', FAILED_SHARPE)
+        calmar_ratio = metrics.get('calmar_ratio', FAILED_SHARPE)
         annual_return = metrics.get('annualized_return', 0)
         max_drawdown = metrics.get('max_drawdown', 0)
 
         return {
             **params,
             "sharpe_ratio": float(sharpe_ratio),
+            "calmar_ratio": float(calmar_ratio),
             "annual_return": float(annual_return),
             "max_drawdown": float(max_drawdown),
             "error_type": None,
@@ -88,6 +90,7 @@ def evaluate_single_params(params: dict, **kwargs) -> dict:
         error_info = {
             **params,
             "sharpe_ratio": FAILED_SHARPE,
+            "calmar_ratio": FAILED_SHARPE,
             "annual_return": 0,
             "max_drawdown": 0,
             "error_type": type(e).__name__,
@@ -250,6 +253,32 @@ def main():
         # Convert numpy types to native python types for json serialization
         best_params_native = {k: (int(v) if isinstance(v, np.integer) else v) for k, v in best_params.items()}
         json.dump(best_params_native, f, ensure_ascii=False, indent=4)
+
+    # 新增：生成參數分析圖表
+    if not results_df.empty:
+        try:
+            param_names_for_plot = [p for p in PARAM_GRID.keys() if len(list(PARAM_GRID.get(p, []))) > 1]
+            
+            # 從 cvilliq 策略中借鑒的閾值，您可以根據需要調整
+            SHARPE_THRESHOLD = best_result.get('sharpe_ratio', 1.0) * 0.8 
+            CALMAR_THRESHOLD = best_result.get('calmar_ratio', 1.0) * 0.8 if 'calmar_ratio' in best_result else 0
+            ANNUAL_RETURN_THRESHOLD = best_result.get('annual_return', 0.3) * 0.8
+            MIN_ACCEPTABLE_DRAWDOWN = abs(best_result.get('max_drawdown', -0.5)) * 1.2
+
+            plot_optimization_results_medium_style(
+                results_df=results_df[results_df.sharpe_ratio > FAILED_SHARPE],
+                param_names=param_names_for_plot,
+                output_dir=output_dir,
+                sharpe_threshold=SHARPE_THRESHOLD,
+                calmar_threshold=CALMAR_THRESHOLD,
+                annual_return_threshold=ANNUAL_RETURN_THRESHOLD,
+                max_drawdown_threshold=-MIN_ACCEPTABLE_DRAWDOWN
+            )
+            print("  成功生成參數分析圖表。")
+        except Exception as e:
+            import traceback
+            print(f"  生成參數分析圖表時出錯: {e}")
+            print(traceback.format_exc())
 
     print(f"\n所有結果已保存至: {output_dir}")
 
