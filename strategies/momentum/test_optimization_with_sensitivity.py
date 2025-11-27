@@ -168,7 +168,7 @@ def main():
     END_DATE = "2024-12-31"
 
     PARAM_GRID = {
-        "lookback_period": range(5, 450, 1),
+        "lookback_period": range(455, 485, 1),
         "leverage": range(1, 2, 1),
     }
 
@@ -177,6 +177,12 @@ def main():
     SLIPPAGE = 0.0002
     STOP_LOSS_FEE = 0.00055  # 和 cvilliq 策略一樣的止損費用
     N_JOBS = -1
+
+    # 圖表和篩選的性能閾值
+    SHARPE_THRESHOLD = 1.25
+    CALMAR_THRESHOLD = 2.0
+    ANNUAL_RETURN_THRESHOLD = 0.5
+    MIN_ACCEPTABLE_DRAWDOWN = 0.3
     # ========== 配置區結束 ==========
 
     print(f"Asset: {ASSET} ({TIMEFRAME}) | Period: {START_DATE} to {END_DATE}")
@@ -259,12 +265,6 @@ def main():
         try:
             param_names_for_plot = [p for p in PARAM_GRID.keys() if len(list(PARAM_GRID.get(p, []))) > 1]
             
-            # 從 cvilliq 策略中借鑒的閾值，您可以根據需要調整
-            SHARPE_THRESHOLD = best_result.get('sharpe_ratio', 1.0) * 0.8 
-            CALMAR_THRESHOLD = best_result.get('calmar_ratio', 1.0) * 0.8 if 'calmar_ratio' in best_result else 0
-            ANNUAL_RETURN_THRESHOLD = best_result.get('annual_return', 0.3) * 0.8
-            MIN_ACCEPTABLE_DRAWDOWN = abs(best_result.get('max_drawdown', -0.5)) * 1.2
-
             plot_optimization_results_medium_style(
                 results_df=results_df[results_df.sharpe_ratio > FAILED_SHARPE],
                 param_names=param_names_for_plot,
