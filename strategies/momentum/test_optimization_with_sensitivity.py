@@ -30,6 +30,7 @@ if str(project_root) not in sys.path:
 from strategies.momentum.strategy import MomentumStrategy
 from shared.backtest import BacktestEngine
 from shared.data_loader import load_local_data
+from shared.sensitivity import filter_robust_params
 from shared.visualization import plot_backtest_results, plot_optimization_results_medium_style
 
 
@@ -50,7 +51,11 @@ def evaluate_single_params(params: dict, **kwargs) -> dict:
         slippage = kwargs["slippage"]
         periods_per_year = kwargs["periods_per_year"]
         stop_loss_fee = kwargs.get("stop_loss_fee", 0.00055)
+        
+        # 解析參數
         leverage = int(params.get("leverage", 1))
+        capital_allocation = float(params.get("capital_allocation", 1.0))
+        final_leverage = leverage * capital_allocation
 
         # 生成策略信號
         strategy = MomentumStrategy()
@@ -64,7 +69,7 @@ def evaluate_single_params(params: dict, **kwargs) -> dict:
             slippage=slippage,
             initial_capital=100000,
             periods_per_year=periods_per_year,
-            leverage=leverage,
+            leverage=final_leverage,
             stop_loss_fee=stop_loss_fee
         )
 
@@ -168,8 +173,9 @@ def main():
     END_DATE = "2024-12-31"
 
     PARAM_GRID = {
-        "lookback_period": range(455, 485, 1),
-        "leverage": range(1, 2, 1),
+        "lookback_period": range(5, 500, 2),
+        "leverage": range(1, 7, 1),
+        "capital_allocation": np.arange(0.1, 1.01, 0.3),
     }
 
     N_TRIALS = 10000
@@ -202,36 +208,82 @@ def main():
         stop_loss_fee=STOP_LOSS_FEE, n_jobs=N_JOBS
     )
     
+    print("\n【Step 2】尋找初步最佳參數...")
     valid_results = results_df[results_df['sharpe_ratio'] > FAILED_SHARPE].copy()
     if valid_results.empty:
-        print("\n錯誤：沒有任何有效的優化結果。" )
+        print("錯誤: 沒有有效的優化結果!")
         results_df.to_csv("debug_momentum_optimization.csv", index=False)
         print("調試文件已保存至 debug_momentum_optimization.csv")
         return
 
-    print("\n【Step 2】選擇最佳參數...")
-    best_result = valid_results.loc[valid_results['sharpe_ratio'].idxmax()]
-    
+    # 先找到夏普最高的作為備選
+    initial_best_result = valid_results.loc[valid_results['sharpe_ratio'].idxmax()]
     param_names = list(PARAM_GRID.keys())
-    best_params = {name: best_result[name] for name in param_names}
+    initial_best_params = {name: initial_best_result[name] for name in param_names}
+    print(f"初步最佳夏普參數: {initial_best_params} (Sharpe: {initial_best_result['sharpe_ratio']:.4f})")
+
+    print("\n【Step 3】進行敏感性分析並篩選穩健參數...")
     
-    print(f"最佳參數: {best_params}")
+    # 篩選夏普比率大於閾值的參數作為候選
+    candidates_df = valid_results[valid_results['sharpe_ratio'] > SHARPE_THRESHOLD].copy()
+    
+    if candidates_df.empty:
+        print(f"⚠️ 警告: 沒有參數組合的夏普比率超過 {SHARPE_THRESHOLD}，將使用初步最佳參數。")
+        robust_df = pd.DataFrame()
+        best_robust_params = initial_best_params
+    else:
+        print(f"找到 {len(candidates_df)} 個夏普 > {SHARPE_THRESHOLD} 的候選參數，開始計算穩健性...")
+        # 注意：這裡的 filter_robust_params 假設它能處理 'turnover' 列不存在的情況
+        robust_df, best_robust_params = filter_robust_params(
+            candidates_df=candidates_df,
+            all_results_df=results_df,
+            param_grid=PARAM_GRID,
+            metric="sharpe_ratio",
+            sharpe_threshold=SHARPE_THRESHOLD,
+            turnover_min=0, # momentum 策略沒有 turnover，設為 0
+            turnover_max=999, # momentum 策略沒有 turnover，設為很大值
+            top_n=10
+        )
+
+    if not best_robust_params:
+        print("警告: 敏感性分析未找到穩健參數，將使用初步最佳夏普參數。")
+        best_params = initial_best_params
+        best_result = initial_best_result
+    else:
+        print(f"✅ 找到最佳穩健參數: {best_robust_params}")
+        # 從原始結果中找到這組最佳穩健參數對應的完整性能數據
+        key_cols = list(best_robust_params.keys())
+        merged_df = pd.merge(results_df, pd.DataFrame([best_robust_params]), on=key_cols)
+        if not merged_df.empty:
+            best_result = merged_df.iloc[0]
+            best_params = best_robust_params
+        else:
+            # 作為備份，如果合併失敗
+            print("警告: 無法在原始結果中找到最佳穩健參數的數據，退回使用初步最佳參數。")
+            best_params = initial_best_params
+            best_result = initial_best_result
+
+    print(f"\n最終選定參數: {best_params}")
     print(f"性能: Sharpe={best_result['sharpe_ratio']:.3f}, Return={best_result['annual_return']:.2%}, Drawdown={best_result['max_drawdown']:.2%}")
 
-    print("\n【Step 3】準備輸出目錄...")
+    print("\n【Step 4】準備輸出目錄...")
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     output_dir = Path(__file__).parent / "results" / f"Optimization_Momentum_{timestamp}"
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    print("\n【Step 4】使用最佳參數運行最終回測並記錄績效...")
+    print("\n【Step 5】使用最佳參數運行最終回測並記錄績效...")
     try:
         strategy = MomentumStrategy()
         best_signals = strategy.generate_signals(df, **best_params)
         
+        # 計算最終槓桿
         leverage = int(best_params.get('leverage', 1))
+        capital_allocation = float(best_params.get('capital_allocation', 1.0))
+        final_leverage = leverage * capital_allocation
+        
         best_engine = BacktestEngine(
             data=df, signals=best_signals, transaction_cost=TRANSACTION_COST, slippage=SLIPPAGE,
-            initial_capital=100000, periods_per_year=periods_per_year, leverage=leverage,
+            initial_capital=100000, periods_per_year=periods_per_year, leverage=final_leverage,
             stop_loss_fee=STOP_LOSS_FEE
         )
         best_backtest_results = best_engine.run()
@@ -242,7 +294,7 @@ def main():
             with open(metrics_path, 'w', encoding='utf-8') as f:
                 json.dump(final_metrics, f, ensure_ascii=False, indent=4)
         
-        print("\n【Step 5】生成報告和圖表...")
+        print("\n【Step 6】生成報告和圖表...")
         plot_backtest_results(
             equity_curve=best_backtest_results['equity_curve'],
             data=df,
@@ -279,6 +331,9 @@ def main():
             import traceback
             print(f"  生成參數分析圖表時出錯: {e}")
             print(traceback.format_exc())
+
+    if not robust_df.empty:
+        robust_df.to_csv(output_dir / "optimization_results_robust.csv", index=False)
 
     print(f"\n所有結果已保存至: {output_dir}")
 

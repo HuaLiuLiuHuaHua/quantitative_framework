@@ -50,8 +50,9 @@ def calculate_all_metrics(
         return _get_zero_metrics()
 
     # --- Portfolio-level metrics (Unaffected by the fix) ---
+    num_periods = len(returns)
     total_return = (1 + returns).prod() - 1
-    annualized_return = (1 + returns.mean()) ** periods_per_year - 1 if len(returns) > 0 else 0
+    annualized_return = (1 + total_return) ** (periods_per_year / num_periods) - 1 if num_periods > 0 else 0
     volatility = returns.std() * np.sqrt(periods_per_year)
     sharpe_ratio = annualized_return / volatility if volatility > 0 else 0
 
@@ -170,7 +171,9 @@ def calculate_sharpe_ratio(
     if len(returns) == 0:
         return 0
 
-    annualized_return = (1 + returns.mean()) ** periods_per_year - 1
+    num_periods = len(returns)
+    total_return = (1 + returns).prod() - 1
+    annualized_return = (1 + total_return) ** (periods_per_year / num_periods) - 1 if num_periods > 0 else 0
     volatility = returns.std() * np.sqrt(periods_per_year)
 
     if volatility > 0:
@@ -219,8 +222,10 @@ def calculate_calmar_ratio(
 
     if len(returns) == 0:
         return 0
-
-    annualized_return = (1 + returns.mean()) ** periods_per_year - 1
+    
+    num_periods = len(returns)
+    total_return = (1 + returns).prod() - 1
+    annualized_return = (1 + total_return) ** (periods_per_year / num_periods) - 1 if num_periods > 0 else 0
     max_dd = calculate_max_drawdown(returns)
 
     if max_dd != 0:

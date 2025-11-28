@@ -32,6 +32,7 @@ if str(project_root) not in sys.path:
 from strategies.cvilliq.strategy import CVILLIQStrategy
 from shared.backtest import BacktestEngine
 from shared.data_loader import load_local_data
+from shared.sensitivity import filter_robust_params
 from shared.visualization import plot_backtest_results, plot_optimization_results_medium_style
 
 
@@ -185,66 +186,6 @@ def run_optimization(
     return pd.DataFrame(results)
 
 
-def calculate_robustness_score(row: pd.Series) -> float:
-    max_dd_abs = abs(float(row['max_drawdown']))
-    sharpe = float(row['sharpe_ratio'])
-    calmar = float(row['calmar_ratio'])
-    annual_ret = float(row['annual_return'])
-    return sharpe * 0.4 + calmar * 0.3 + min(annual_ret, 2.0) * 0.1 - max_dd_abs * 0.2
-
-
-def filter_top_params(
-    results_df: pd.DataFrame,
-    sharpe_threshold: float = 1.25,
-    calmar_threshold: float = 2.5,
-    annual_return_threshold: float = 0.5,
-    max_drawdown_threshold: float = -0.2
-) -> pd.DataFrame:
-    valid_df = results_df[results_df['sharpe_ratio'] > FAILED_SHARPE].copy()
-    if valid_df.empty:
-        print("Warning: No valid optimization results found.")
-        return pd.DataFrame()
-
-    cond_sharpe = valid_df['sharpe_ratio'] > sharpe_threshold
-    cond_calmar = valid_df['calmar_ratio'] > calmar_threshold
-    cond_annual_return = valid_df['annual_return'] > annual_return_threshold
-    cond_max_drawdown = valid_df['max_drawdown'] > max_drawdown_threshold
-
-    filtered_df = valid_df[
-        cond_sharpe &
-        cond_calmar &
-        cond_annual_return &
-        cond_max_drawdown
-    ].copy()
-
-    # 如果沒有參數滿足所有條件，返回空 DataFrame（主函數會自動選擇夏普比率最高的參數）
-    if filtered_df.empty:
-        print(f"⚠️  警告：沒有任何參數同時滿足 Sharpe > {sharpe_threshold}, Calmar > {calmar_threshold}, 年化報酬 > {annual_return_threshold:.0%}, 最大回撤 < {-max_drawdown_threshold:.0%}")
-        print(f"    將從所有有效結果中選擇夏普比率最高的參數組合")
-        return pd.DataFrame()
-
-    if not filtered_df.empty:
-        filtered_df['robustness_score'] = filtered_df.apply(calculate_robustness_score, axis=1)
-        filtered_df = filtered_df.sort_values('robustness_score', ascending=False)
-    
-    print(f"\n篩選條件: 夏普 > {sharpe_threshold}, 卡瑪 > {calmar_threshold}, 年化報酬 > {annual_return_threshold:.0%}, 最大回撤 > {max_drawdown_threshold:.0%}")
-    print(f"符合條件的參數組合: {len(filtered_df)} 個")
-    
-    if not filtered_df.empty:
-        print(f"\n穩健性前3名參數:")
-        for idx, (_, row) in enumerate(filtered_df.head(3).iterrows(), 1):
-            param_str = (
-                f"  {idx}. factor_win={int(row['window'])}, "
-                f"thresh_win={int(row['threshold_window'])}, "
-                f"long_q={row['long_entry_quantile']:.2f}, "
-                f"short_q={row['short_entry_quantile']:.2f}, "
-                f"alloc={row.get('capital_allocation', 1.0):.2f}, "
-                f"robustness={row.get('robustness_score', 0):.4f}"
-            )
-            print(param_str)
-    return filtered_df
-
-
 # ==================== 主函數 ====================
 
 def main():
@@ -255,17 +196,17 @@ def main():
     print()
 
     # ========== 用戶配置區 ==========
-    DATA_CONFIG = "ETHUSDT_1h"
+    DATA_CONFIG = "BTCUSDT_1h"
     START_DATE = "2022-10-01"
     END_DATE = "2024-12-31"
 
     PARAM_GRID = {
-        "window": range(100, 300, 2),                            # 因子計算窗口（簡化為 5 個值用於快速測試）
-        "threshold_window": range(200, 500, 3),                 # 門檻計算窗口（簡化為 4 個值用於快速測試）
+        "window": range(5, 450, 15),                            # 因子計算窗口（簡化為 5 個值用於快速測試）
+        "threshold_window": range(10, 450, 14),                 # 門檻計算窗口（簡化為 4 個值用於快速測試）
         "long_entry_quantile": np.arange(0.5, 0.6, 0.2),      # 做多百分位（簡化為 2 個值）
         "short_entry_quantile": np.arange(0.5, 0.6, 0.2),     # 做空百分位（簡化為 2 個值）
         "leverage": range(1, 2),                                        # 基礎槓桿
-        "capital_allocation": np.arange(1, 1.01, 0.3)         # 資金分配
+        "capital_allocation": np.arange(0.1, 1.01, 0.1)         # 資金分配
     }
 
     N_TRIALS = 10000  # 簡化參數範圍後，減少試驗次數以加快速度
@@ -300,34 +241,79 @@ def main():
     results_df.to_csv("debug_results.csv", index=False)
     print(f"  Evaluated {len(results_df):,} combinations")
 
-    print("【Step 2】篩選頂級性能參數...")
-    top_params_df = filter_top_params(
-        results_df=results_df, sharpe_threshold=SHARPE_THRESHOLD, calmar_threshold=CALMAR_THRESHOLD,
-        annual_return_threshold=ANNUAL_RETURN_THRESHOLD, max_drawdown_threshold=-MIN_ACCEPTABLE_DRAWDOWN
-    )
+    print("【Step 2】篩選有效結果並尋找最佳參數...")
+    valid_results = results_df[results_df['sharpe_ratio'] > FAILED_SHARPE].copy()
+    if valid_results.empty:
+        print("錯誤: 沒有任何有效的優化結果!")
+        results_df.to_csv("debug_cvilliq_optimization.csv", index=False)
+        print("調試文件已保存至 debug_cvilliq_optimization.csv")
+        return
 
     param_names = list(PARAM_GRID.keys())
-    if not top_params_df.empty:
-        best_result = top_params_df.iloc[0]
-        print(f"\n 從篩選結果中選出最穩健的參數。")
+    best_params = None
+    best_result = None
+    robust_df = pd.DataFrame() # Initialize empty dataframe for logging
+
+    print("\n【Step 3】篩選最佳參數...")
+    # 第一階段：篩選同時符合所有績效門檻的參數
+    strong_candidates_df = valid_results[
+        (valid_results['sharpe_ratio'] > SHARPE_THRESHOLD) &
+        (valid_results['calmar_ratio'] > CALMAR_THRESHOLD) &
+        (valid_results['annual_return'] > ANNUAL_RETURN_THRESHOLD) &
+        (valid_results['max_drawdown'] > -MIN_ACCEPTABLE_DRAWDOWN)  # max_drawdown is negative
+    ].copy()
+
+    if not strong_candidates_df.empty:
+        print(f"✅ 第一階段：找到 {len(strong_candidates_df)} 個滿足所有績效門檻的優質參數。")
+        print("→ 現在對這些優質參數進行穩健性分析...")
+        
+        robust_df, best_robust_params = filter_robust_params(
+            candidates_df=strong_candidates_df,
+            all_results_df=results_df,
+            param_grid=PARAM_GRID,
+            metric="sharpe_ratio",
+            sharpe_threshold=SHARPE_THRESHOLD,
+            turnover_min=0,
+            turnover_max=999,
+            top_n=10 
+        )
+
+        if best_robust_params:
+            print(f"✅ 穩健性分析完成，選出穩健性分數最高的參數為最佳參數: {best_robust_params}")
+            best_params = best_robust_params
+        else:
+            print("⚠️ 穩健性分析未找到最佳參數，將從優質參數中選擇夏普比率最高者。")
+            best_result_row = strong_candidates_df.loc[strong_candidates_df['sharpe_ratio'].idxmax()]
+            best_params = {name: best_result_row[name] for name in param_names}
+    
     else:
-        valid_results = results_df[results_df['sharpe_ratio'] > FAILED_SHARPE]
-        if valid_results.empty:
-            print("\n錯誤：沒有任何有效的優化結果。")
-            return
-        best_result = valid_results.loc[valid_results['sharpe_ratio'].idxmax()]
-        print(f"\n 沒有參數滿足所有篩選條件，選擇夏普比率最高的參數。")
+        print(f"⚠️ 第一階段：未找到滿足所有門檻 (夏普>{SHARPE_THRESHOLD}, 卡瑪>{CALMAR_THRESHOLD}, 年報酬>{ANNUAL_RETURN_THRESHOLD:.0%}, 最大回撤<{-MIN_ACCEPTABLE_DRAWDOWN:.0%}) 的參數。")
+        print("→ 退回策略：直接選擇所有結果中夏普比率最高的參數。")
+        best_result_row = valid_results.loc[valid_results['sharpe_ratio'].idxmax()]
+        best_params = {name: best_result_row[name] for name in param_names}
 
-    best_params = {name: (int(best_result[name]) if isinstance(best_result[name], (np.integer, np.floating)) and best_result[name] == int(best_result[name]) else float(best_result[name]) if isinstance(best_result[name], (np.integer, np.floating)) else best_result[name]) for name in param_names}
-    print(f"最佳參數: {best_params}")
-    print(f"性能: Sharpe={best_result['sharpe_ratio']:.3f}, Calmar={best_result['calmar_ratio']:.3f}, Return={best_result['annual_return']:.2%}, Drawdown={best_result['max_drawdown']:.2%}")
+    # 獲取並打印最終選定參數的性能
+    if best_params:
+        key_cols = list(best_params.keys())
+        merged_df = pd.merge(valid_results, pd.DataFrame([best_params]), on=key_cols)
+        if not merged_df.empty:
+            best_result = merged_df.iloc[0]
+            print(f"\n✅ 最終選定參數: {best_params}")
+            print(f"性能: Sharpe={best_result['sharpe_ratio']:.3f}, Calmar={best_result['calmar_ratio']:.3f}, Return={best_result['annual_return']:.2%}, Drawdown={best_result['max_drawdown']:.2%}")
+        else:
+            print(f"警告: 在原始結果中找不到最佳參數 {best_params} 的數據，將無法顯示最終性能。")
+            # Fallback for safety, though it shouldn't happen
+            best_result = pd.Series(dtype='float64')
+    else:
+         print("錯誤: 最終未能確定任何最佳參數。")
+         return
 
-    print("\n【Step 3】準備輸出目錄...")
+    print("\n【Step 4】準備輸出目錄...")
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     output_dir = Path(__file__).parent / "results" / f"Optimization_Dynamic_{timestamp}"
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    print("\n【Step 4】使用最佳參數運行最終回測並記錄績效...")
+    print("\n【Step 5】使用最佳參數運行最終回測並記錄績效...")
     best_backtest_results = None
     try:
         strategy = CVILLIQStrategy()
@@ -352,7 +338,7 @@ def main():
     except Exception as e:
         print(f" 最終回測失敗: {e}")
 
-    print("\n【Step 5】生成報告和圖表...")
+    print("\n【Step 6】生成報告和圖表...")
 
     if best_backtest_results and 'equity_curve' in best_backtest_results and not best_backtest_results['equity_curve'].empty:
         try:
@@ -386,10 +372,14 @@ def main():
             print(f"  Error generating parameter analysis: {e}")
             print(traceback.format_exc())
 
-    if not top_params_df.empty:
-        top_params_df.to_csv(output_dir / "optimization_results_top.csv", index=False)
-        with open(output_dir / "best_params.json", 'w', encoding='utf-8') as f:
-            json.dump(best_params, f, ensure_ascii=False, indent=4)
+    if 'robust_df' in locals() and not robust_df.empty:
+        robust_df.to_csv(output_dir / "optimization_results_robust.csv", index=False)
+    
+    with open(output_dir / "best_params.json", 'w', encoding='utf-8') as f:
+        # Convert numpy types to native python types
+        best_params_native = {k: v.item() if isinstance(v, np.generic) else v for k, v in best_params.items()}
+        json.dump(best_params_native, f, ensure_ascii=False, indent=4)
+
 
     print(f"\nResults saved to: {output_dir}")
 

@@ -190,7 +190,7 @@ def filter_top_params(
         max_drawdown_threshold: 最大回撤閾值（負數，如 -0.2 表示 -20%）
 
     Returns:
-        符合條件的參數組合，按穩健性分數降序排列
+        符合條件的參數組合
     """
     # 過濾失敗結果
     valid_df = results_df[results_df['sharpe_ratio'] > FAILED_SHARPE].copy()
@@ -215,18 +215,6 @@ def filter_top_params(
         print(f"⚠️  警告：沒有任何參數同時滿足 Sharpe > {sharpe_threshold}, Calmar > {calmar_threshold}, 年化報酬 > {annual_return_threshold:.0%}, 最大回撤 < {-max_drawdown_threshold:.0%}")
         print(f"    將從所有有效結果中選擇夏普比率最高的參數組合")
         return pd.DataFrame()
-
-    if not filtered_df.empty:
-        # 計算穩健性分數
-        def calculate_robustness_score(row: pd.Series) -> float:
-            max_dd_abs = abs(float(row['max_drawdown']))
-            sharpe = float(row['sharpe_ratio'])
-            calmar = float(row['calmar_ratio'])
-            annual_ret = float(row['annual_return'])
-            return sharpe * 0.4 + calmar * 0.3 + min(annual_ret, 2.0) * 0.1 - max_dd_abs * 0.2
-
-        filtered_df['robustness_score'] = filtered_df.apply(calculate_robustness_score, axis=1)
-        filtered_df = filtered_df.sort_values('robustness_score', ascending=False)
 
     print(f"\n篩選條件: 夏普 > {sharpe_threshold}, 卡瑪 > {calmar_threshold}, 年化報酬 > {annual_return_threshold:.0%}, 最大回撤 > {max_drawdown_threshold:.0%}")
     print(f"符合條件的參數組合: {len(filtered_df)} 個")
@@ -880,10 +868,10 @@ def main():
     # - 新版範圍縮小到中間區域，避免極端保守參數
     # - 預期空倉率降至 35-45%，交易頻率提升 20-30%
     PARAM_GRID = {
-        "window": range(200, 220, 1),                            # 因子計算窗口
-        "threshold_window": range(300, 440, 7),                  # 門檻計算窗口
-        "long_entry_quantile": np.arange(0.1, 1, 0.2),       # 做多百分位：[0.40, 0.45, 0.50, 0.55, 0.60, 0.65]
-        "short_entry_quantile": np.arange(0.1, 1, 0.2),    # 做空百分位：[0.35, 0.40, 0.45, 0.50, 0.55, 0.60]
+        "window": range(200, 300, 1),                            # 因子計算窗口
+        "threshold_window": range(200, 300, 1),                  # 門檻計算窗口
+        "long_entry_quantile": np.arange(0.5, 0.6, 0.2),       # 做多百分位：[0.40, 0.45, 0.50, 0.55, 0.60, 0.65]
+        "short_entry_quantile": np.arange(0.5, 0.6, 0.2),    # 做空百分位：[0.35, 0.40, 0.45, 0.50, 0.55, 0.60]
         "leverage": [1],                                         # 基礎槓桿
         "capital_allocation": np.arange(1, 1.01, 0.1)           # 資金分配
     }
