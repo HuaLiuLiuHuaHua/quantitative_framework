@@ -842,7 +842,7 @@ def main():
     # ========== 用戶配置區 ==========
 
     # 數據配置
-    DATA_CONFIG = "ETHUSDT_1h"
+    DATA_CONFIG = "BTCUSDT_1h"
     FULL_START_DATE = "2022-11-01"
     FULL_END_DATE = "2025-10-31"
 
@@ -868,12 +868,12 @@ def main():
     # - 新版範圍縮小到中間區域，避免極端保守參數
     # - 預期空倉率降至 35-45%，交易頻率提升 20-30%
     PARAM_GRID = {
-        "window": range(200, 300, 1),                            # 因子計算窗口
-        "threshold_window": range(200, 300, 1),                  # 門檻計算窗口
-        "long_entry_quantile": np.arange(0.5, 0.6, 0.2),       # 做多百分位：[0.40, 0.45, 0.50, 0.55, 0.60, 0.65]
-        "short_entry_quantile": np.arange(0.5, 0.6, 0.2),    # 做空百分位：[0.35, 0.40, 0.45, 0.50, 0.55, 0.60]
+        "window": range(240, 245, 1),                            # 因子計算窗口
+        "threshold_window": range(350, 400, 3),                  # 門檻計算窗口
+        "long_entry_quantile": np.arange(0.1, 1, 0.2),       # 做多百分位：[0.40, 0.45, 0.50, 0.55, 0.60, 0.65]
+        "short_entry_quantile": np.arange(0.1, 1, 0.2),    # 做空百分位：[0.35, 0.40, 0.45, 0.50, 0.55, 0.60]
         "leverage": [1],                                         # 基礎槓桿
-        "capital_allocation": np.arange(1, 1.01, 0.1)           # 資金分配
+        "capital_allocation": np.arange(0.1, 1.01, 0.3)           # 資金分配
     }
 
     # 隨機搜索次數
