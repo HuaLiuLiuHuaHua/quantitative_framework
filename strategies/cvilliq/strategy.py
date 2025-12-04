@@ -146,6 +146,32 @@ class CVILLIQStrategy(BaseStrategy):
         # 為簡化起見，返回一個足夠大的固定值，以容納所有滾動窗口
         return 250
 
+    def get_required_lookback(self, **params) -> int:
+        """
+        返回策略所需的最小 lookback 期間，考慮嵌套 rolling 操作的累積需求
+
+        嵌套 rolling 計算流程:
+        1. 第一層: rolling(window) 計算 CVILLIQ，需要 window 個數據點
+        2. 第二層: rolling(threshold_window, min_periods=threshold_window*0.8) 計算門檻，
+                  需要額外 threshold_window * 0.8 個 CVILLIQ 值
+        3. 第三層: shift(1) 延遲 1 個時間點，確保無 lookahead bias
+
+        總計: window + threshold_window * 0.8 + 1
+
+        Args:
+            window: CVILLIQ 計算窗口 (default: 20)
+            threshold_window: 動態門檻計算窗口 (default: 100)
+
+        Returns:
+            int: 所需的最小 lookback 期間
+        """
+        window = int(params.get('window', 20))
+        threshold_window = int(params.get('threshold_window', 100))
+        min_periods_ratio = 0.8  # 與 generate_signals 第 191 行的 min_periods 設定一致
+
+        # 實際需求：第一層 window + 第二層 min_periods + shift(1)
+        return window + int(threshold_window * min_periods_ratio) + 1
+
     def generate_signals(self, df: pd.DataFrame, **params) -> pd.Series:
         """
         生成交易信號 (動態門檻版本)

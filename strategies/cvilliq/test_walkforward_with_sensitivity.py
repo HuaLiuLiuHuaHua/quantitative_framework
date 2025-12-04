@@ -758,35 +758,61 @@ def run_oos_test(
     **kwargs
 ) -> Tuple[pd.Series, dict]:
     """
-    運行樣本外測試，使用最佳參數
+    運行樣本外測試，使用最佳參數 (已修復指標預熱問題)
 
     Returns:
         equity_curve: OOS權益曲線
         oos_metrics: OOS績效指標
     """
     try:
+        # --- 開始修改 ---
+        # 1. 使用策略類的方法計算所需的預熱期
+        strategy = CVILLIQStrategy()
+        required_lookback = strategy.get_required_lookback(**best_params)
+
+        test_start_dt = pd.to_datetime(test_start)
+        test_end_dt = pd.to_datetime(test_end)
+
+        # 2. 找到預熱期的開始時間點
+        try:
+            test_start_idx = data_full.index.get_loc(test_start_dt)
+        except KeyError:
+            # 如果沒有精確匹配，使用 searchsorted 找最接近的日期
+            test_start_idx = data_full.index.searchsorted(test_start_dt)
+            if test_start_idx >= len(data_full):
+                logger.error(f"OOS測試失敗: test_start_dt {test_start_dt} 晚於最後數據點 {data_full.index[-1]}")
+                return pd.Series(), {}
+            logger.warning(f"test_start_dt {test_start_dt} 不精確匹配，使用最近的日期 {data_full.index[test_start_idx]}")
+
+        warmup_start_idx = max(0, test_start_idx - required_lookback)
+        warmup_start_dt = data_full.index[warmup_start_idx]
+
+        # 3. 切割包含預熱期的數據
+        extended_test_data = data_full.loc[warmup_start_dt:test_end_dt].copy()
+
+        # 檢查數據是否足夠 (考慮到 extended_test_data 的第一筆資料可能不是 warmup_start_dt)
+        if len(extended_test_data) < required_lookback:
+            logger.error(f"OOS測試失敗: 擴展後的數據長度 ({len(extended_test_data)}) 仍然小於所需的回看期 ({required_lookback})")
+            return pd.Series(), {}
+        # --- 結束修改 ---
+
         # 解析參數
         leverage = int(best_params.get("leverage", 1))
         capital_allocation = float(best_params.get("capital_allocation", 1.0))
         final_leverage = leverage * capital_allocation
 
-        # 提取測試數據
-        test_start_dt = pd.to_datetime(test_start)
-        test_end_dt = pd.to_datetime(test_end)
-        test_data = data_full[
-            (data_full.index >= test_start_dt) &
-            (data_full.index <= test_end_dt)
-        ].copy()
+        # 生成策略信號 (使用擴展數據，復用上面創建的 strategy 實例)
+        signals = strategy.generate_signals(
+            extended_test_data, # <--- 使用擴展數據
+            **best_params
+        )
+
+        # 4. 將信號和原始測試數據對齊，以進行回測
+        signals = signals.reindex(extended_test_data.index).loc[test_start_dt:test_end_dt]
+        test_data = extended_test_data.loc[test_start_dt:test_end_dt]
 
         if test_data.empty:
             return pd.Series(), {}
-
-        # 生成策略信號
-        strategy = CVILLIQStrategy()
-        signals = strategy.generate_signals(
-            test_data,
-            **best_params
-        )
 
         # 計算信號變化次數
         signal_changes = signals.diff().fillna(0)
@@ -799,8 +825,8 @@ def run_oos_test(
         stop_loss_fee = kwargs.get("stop_loss_fee", 0.00055)
 
         engine = BacktestEngine(
-            data=test_data,
-            signals=signals,
+            data=test_data, # 使用原始長度的 test_data
+            signals=signals, # 使用對齊後的 signals
             transaction_cost=transaction_cost,
             slippage=slippage,
             initial_capital=100000,
@@ -827,6 +853,9 @@ def run_oos_test(
 
     except Exception as e:
         logger.error(f"OOS測試失敗: {e}")
+        # 在異常時打印詳細堆棧信息，方便調試
+        import traceback
+        traceback.print_exc()
         return pd.Series(), {}
 
 
@@ -842,9 +871,9 @@ def main():
     # ========== 用戶配置區 ==========
 
     # 數據配置
-    DATA_CONFIG = "BTCUSDT_1h"
-    FULL_START_DATE = "2022-11-01"
-    FULL_END_DATE = "2025-10-31"
+    DATA_CONFIG = "ETHUSDT_1h"
+    FULL_START_DATE = "2022-12-01"
+    FULL_END_DATE = "2025-11-30"
 
     # Walk-Forward 窗口配置
     # 按"數據點數"定義，自動轉換為相應時間單位:
@@ -856,7 +885,7 @@ def main():
     # - 優化：TRAIN=18720, STEP=4320 → 重疊率77%（參數更獨立）
     TRAIN_WINDOW_POINTS = 18720   # 訓練窗口 18720個數據點 (約780天，小時級)
     TEST_WINDOW_POINTS = 720      # 測試窗口 720個數據點 (約30天，小時級)
-    STEP_WINDOW_POINTS = 720     # 滾動步長 4320個數據點 (約180天，小時級，減少重疊)
+    STEP_WINDOW_POINTS = 720      # 滾動步長 720個數據點 (約30天，小時級，減少重疊)
 
     # 參數網格 (4維空間)
     # 修改: 分離 long_threshold 和 short_threshold
@@ -868,12 +897,12 @@ def main():
     # - 新版範圍縮小到中間區域，避免極端保守參數
     # - 預期空倉率降至 35-45%，交易頻率提升 20-30%
     PARAM_GRID = {
-        "window": range(240, 245, 1),                            # 因子計算窗口
-        "threshold_window": range(350, 400, 3),                  # 門檻計算窗口
-        "long_entry_quantile": np.arange(0.1, 1, 0.2),       # 做多百分位：[0.40, 0.45, 0.50, 0.55, 0.60, 0.65]
-        "short_entry_quantile": np.arange(0.1, 1, 0.2),    # 做空百分位：[0.35, 0.40, 0.45, 0.50, 0.55, 0.60]
-        "leverage": [1],                                         # 基礎槓桿
-        "capital_allocation": np.arange(0.1, 1.01, 0.3)           # 資金分配
+        "window": range(162, 261, 1),                            # 因子計算窗口
+        "threshold_window": range(160, 259, 1),                  # 門檻計算窗口
+        "long_entry_quantile": np.arange(0.5, 0.6, 0.2),       # 做多百分位：[0.40, 0.45, 0.50, 0.55, 0.60, 0.65]
+        "short_entry_quantile": np.arange(0.5, 0.6, 0.2),    # 做空百分位：[0.35, 0.40, 0.45, 0.50, 0.55, 0.60]
+        "leverage": range(1, 2),                                         # 基礎槓桿
+        "capital_allocation": np.arange(1, 1.01, 0.3)           # 資金分配
     }
 
     # 隨機搜索次數
