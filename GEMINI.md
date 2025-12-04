@@ -1,92 +1,63 @@
-
 # Project Overview
 
-This project is a Python-based quantitative trading framework designed for the development, backtesting, and analysis of algorithmic trading strategies. It provides a robust set of tools to handle tasks such as data fetching, strategy implementation, performance evaluation, and statistical validation. The framework is built with a strong emphasis on preventing lookahead bias and ensuring the statistical significance of backtest results.
+This project is a professional quantitative trading framework written in Python. It is designed for the development, backtesting, and optimization of trading strategies, with a strong emphasis on avoiding lookahead bias and ensuring statistical robustness.
 
-## Key Technologies
+The framework is inspired by `MCPT-Main`, `Medium`, and `trading_framework`, and it integrates the best features of each.
 
-*   **Python**: The core programming language.
-*   **Pandas**: For data manipulation and analysis.
-*   **NumPy**: For numerical operations.
-*   **Matplotlib & Seaborn**: For data visualization.
-*   **ta**: A library for technical analysis, used to calculate indicators.
-*   **Numba**: For accelerating Python code, particularly in signal calculation.
+## Core Features
 
-## Architecture
-
-The framework is organized into several key directories:
-
-*   `data/`: Stores historical price data for various assets.
-*   `data_fetchers/`: Contains scripts for downloading data from exchanges like Bybit.
-*   `factors/`: Provides a library of "factor operators" for creating custom trading signals and indicators.
-*   `shared/`: Contains the core components of the framework, including:
-    *   `backtest.py`: Vectorized and event-driven backtesting engines.
-    *   `optimizer.py`: Tools for strategy parameter optimization.
-    *   `walkforward.py`: For conducting walk-forward analysis to test strategy robustness.
-    *   `mcpt.py`: Implements the Monte Carlo Permutation Test for statistical significance.
-*   `strategies/`: Contains implementations of different trading strategies.
+-   **Strict Lookahead Bias Control**: All technical indicators use `shift(1)` to ensure that only historical data is used for signal generation.
+-   **Comprehensive Backtesting Engine**: The framework includes both a vectorized and an event-driven backtesting engine. It provides accurate calculation of transaction costs (fees, slippage) and a full suite of performance metrics (Sharpe Ratio, Max Drawdown, Profit Factor, etc.).
+-   **Efficient Parameter Optimization**: The framework supports grid search and random search for parameter optimization, with parallel processing capabilities to speed up the process.
+-   **Statistical Validation**: It includes statistical tests like Bar Permutation from `MCPT-Main` to validate the significance of a strategy.
+-   **Flexible Data Management**: The framework provides tools for automatically fetching and validating data from sources like Bybit.
 
 # Building and Running
 
 ## 1. Install Dependencies
 
-To set up the environment, install the required Python packages from the `requirements.txt` file:
+There is no `requirements.txt` file in the project. Based on the libraries used in the code (`pandas`, `numpy`, `matplotlib`, `seaborn`, `scipy`, `statsmodels`, `joblib`, `tqdm`), you can install the dependencies with the following command:
 
 ```bash
-pip install -r requirements.txt
+pip install pandas numpy matplotlib seaborn scipy statsmodels joblib tqdm
 ```
 
-## 2. Fetch Data
+## 2. Fetching Data
 
-The framework includes scripts to fetch historical data. For example, to get BTC/USDT 1-hour data from Bybit, you can run:
+The `data_fetchers` directory contains scripts to download historical data. For example, to fetch 1-hour BTC data from Bybit, you can use the `bybit_btc_1h_fetcher.py` script.
 
-```python
-from data_fetchers.bybit_btc_1h_fetcher import fetch_bybit_btc_1h_data
+## 3. Running a Strategy Backtest
 
-df = fetch_bybit_btc_1h_data(
-    start_date="2024-01-01",
-    end_date="2024-12-31",
-    save=True
-)
-```
-
-## 3. Run a Backtest
-
-Each strategy directory contains a `test_backtest.py` script to run a backtest for that strategy. For example, to backtest the `bb_atr` strategy:
+The `strategies` directory contains different trading strategies. Each strategy has a `test_backtest.py` file to run a backtest. For example, to backtest the `donchian` strategy, you would run:
 
 ```bash
-cd strategies/bb_atr
+cd strategies/donchian
 python test_backtest.py
 ```
 
-## 4. Run a Parameter Optimization
+## 4. Parameter Optimization
 
-To find the best parameters for a strategy, you can run the optimization script:
+Each strategy also has a `test_optimization.py` file for parameter optimization. For example, to optimize the `donchian` strategy, you would run:
 
 ```bash
-cd strategies/bb_atr
-python test_optimization_random.py
+cd strategies/donchian
+python test_optimization.py
 ```
 
 # Development Conventions
 
+## Creating a New Data Source
+
+To create a new data source, you can copy an existing data fetcher and modify it with the new symbol and function name.
+
 ## Creating a New Strategy
 
-To create a new trading strategy, follow these steps:
+To create a new strategy, you need to:
 
-1.  **Create a new directory** under `strategies/`.
-2.  **Implement the strategy logic** in a `strategy.py` file. The strategy class should include:
-    *   A `generate_signals` method that takes a DataFrame and returns a Series of trading signals (1 for long, -1 for short, 0 for flat).
-    *   Methods to define default parameters and a parameter grid for optimization.
-3.  **Create a `test_backtest.py` script** to run a backtest of the strategy.
-4.  **Create a `test_optimization_random.py` script** to run a parameter optimization.
+1.  Create a new directory under `strategies`.
+2.  Create a `strategy.py` file that contains a class that inherits from `BaseStrategy` and implements the `generate_signals` method.
+3.  Create `test_backtest.py` and `test_optimization.py` files to test the new strategy.
 
 ## Avoiding Lookahead Bias
 
-A core principle of the framework is to avoid lookahead bias. When generating signals, always use shifted data to ensure that decisions are made only with information available at that time. For example, when using a moving average, use `.shift(1)` to access the previous bar's value:
-
-```python
-# Correct: Use the previous bar's moving average
-ma = df['close'].rolling(20).mean().shift(1)
-signals[df['close'] > ma] = 1
-```
+A core principle of this framework is to avoid lookahead bias. This is achieved by using `shift(1)` on all technical indicators. This ensures that the signal for a given time period is generated using only data from previous time periods.
