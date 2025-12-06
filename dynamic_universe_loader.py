@@ -1,6 +1,6 @@
 import pandas as pd
 from pathlib import Path
-from factors.momentum.factor import MomentumFactor
+from factors.cross_sectional_momentum.factor import MomentumFactor
 
 # 讀入 universe 名單
 universe_path = Path('data/40.csv')

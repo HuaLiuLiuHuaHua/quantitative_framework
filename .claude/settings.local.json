@@ -38,7 +38,9 @@
       "Bash(git commit:*)",
       "Bash(timeout 300 python:*)",
       "Bash(timeout 300 bash:*)",
-      "Bash(C:Python313python.exe -c \"import pandas as pd; df = pd.read_csv(''debug_results.csv''); valid = df[df[''max_drawdown''] > -0.3]; print(f''總共 {len(df)} 個結果''); print(f''符合回撤<30%條件的: {len(valid)} 個''); print(f''\\n回撤最小的5個:''); print(df.nlargest(5, ''max_drawdown'')[[''window'', ''threshold_window'', ''long_entry_quantile'', ''short_entry_quantile'', ''sharpe_ratio'', ''max_drawdown'']])\")"
+      "Bash(C:Python313python.exe -c \"import pandas as pd; df = pd.read_csv(''debug_results.csv''); valid = df[df[''max_drawdown''] > -0.3]; print(f''總共 {len(df)} 個結果''); print(f''符合回撤<30%條件的: {len(valid)} 個''); print(f''\\n回撤最小的5個:''); print(df.nlargest(5, ''max_drawdown'')[[''window'', ''threshold_window'', ''long_entry_quantile'', ''short_entry_quantile'', ''sharpe_ratio'', ''max_drawdown'']])\")",
+      "Bash(grep:*)",
+      "Bash(timeout 600 python:*)"
     ],
     "deny": [],
     "ask": []

@@ -1,0 +1,8 @@
+# 忽略訓練好的模型文件 (太大,不提交到Git)
+models/
+*.pth
+*.pkl
+config.json
+
+# 保留目錄結構
+!models/.gitkeep
