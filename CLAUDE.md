@@ -4,317 +4,243 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-This is a professional quantitative trading framework for developing, testing, and validating algorithmic trading strategies. The framework emphasizes rigorous backtesting, statistical validation, and strict avoidance of lookahead bias.
+This is a **professional quantitative trading research framework** for cryptocurrency strategy development. It emphasizes avoiding lookahead bias, rigorous backtesting, robust parameter optimization, and statistical validation.
 
-## Core Architecture
+### Core Philosophy
+- **No lookahead bias**: All indicators use `shift(1)` to ensure only historical data is used
+- **Rigorous validation**: Walk-Forward, Monte Carlo Permutation Testing (MCPT), and sensitivity analysis
+- **Modular design**: Pluggable strategies, flexible backtesting engines, extensible factor system
+- **Production-ready**: Transaction costs, slippage modeling, comprehensive performance metrics
 
-### Two-Engine Backtest System
+---
 
-The framework supports two complementary backtesting approaches:
+## Architecture Overview
 
-1. **Vectorized Engine** (`BacktestEngine` in `shared/backtest.py`):
-   - Fast, simple signal-based backtesting
-   - Strategies implement `generate_signals()` method returning 1/0/-1 signals
-   - Used for rapid parameter optimization (grid/random search)
-   - Example: `quick_backtest(data, signals, transaction_cost, slippage)`
+### Directory Structure
 
-2. **Event-Driven Engine** (`EventDrivenBacktestEngine` in `shared/backtest.py`):
-   - Bar-by-bar simulation with complex exit logic
-   - Supports trailing stops, breakeven stops, dynamic position sizing
-   - Strategies implement `add_indicators()`, `check_entry_signal()`, `check_exit_signal()`
-   - More realistic but slower than vectorized
-
-All strategies inherit from `BaseStrategy` (in `shared/base_strategy.py`) and can support both engines by implementing the appropriate methods.
-
-### Strategy Development Pattern
-
-Each strategy lives in `strategies/{strategy_name}/` with:
-- `strategy.py`: Strategy logic inheriting from `BaseStrategy`
-- `test_backtest.py`: Basic backtest with fixed parameters
-- `test_optimization_random.py`: Randomized parameter search
-- `test_mcpt.py`: Monte Carlo Permutation Test for statistical validation
-- `test_walkforward_random.py`: Walk-forward analysis with random search
-- `results/`: Auto-generated output directory (`.gitkeep` files track empty dirs)
-
-### Critical Design Principle: Lookahead Bias Avoidance
-
-**ALWAYS use `.shift(1)` on all technical indicators** to ensure signals use only historical data:
-
-```python
-# ❌ WRONG - uses current bar's indicator
-ma = df['close'].rolling(20).mean()
-signals[df['close'] > ma] = 1
-
-# ✅ CORRECT - uses previous bar's indicator
-ma = df['close'].rolling(20).mean().shift(1)
-signals[df['close'] > ma] = 1
+```
+quantitative_framework/
+├── data/                          # Historical OHLCV data (CSV)
+├── data_fetchers/                 # Bybit API data collection
+├── shared/                        # Core framework modules
+├── strategies/                    # Strategy implementations
+├── factors/                       # Cross-sectional factors
+└── ml_tools/                      # Machine learning utilities
 ```
 
-This is enforced throughout the codebase. Signals generated at bar close are executed at next bar's open.
+### Core Modules in `shared/`
 
-### Shared Modules (`shared/`)
+| Module | Purpose |
+|--------|---------|
+| `backtest.py` | Two backtesting engines: vectorized (fast) and event-driven (complex logic) |
+| `base_strategy.py` | Abstract base class for all strategies |
+| `optimizer.py` | Grid/random search parameter optimization with parallel processing |
+| `metrics.py` | 13 comprehensive performance metrics (Sharpe, Calmar, Profit Factor, etc.) |
+| `mcpt.py` | Monte Carlo Permutation Testing for statistical significance |
+| `walkforward.py` | Walk-Forward analyzer for out-of-sample validation |
+| `sensitivity.py` | Parameter sensitivity analysis and visualization |
+| `data_loader.py` | Local data loading with lookback window handling |
+| `base_factor.py` | Abstract base for cross-sectional factors |
+| `visualization.py` | Equity curves, drawdown analysis, heatmaps, monthly returns |
 
-Core functionality used across all strategies:
+### Strategy Architecture
 
-- **backtest.py**: Both vectorized and event-driven backtest engines
-- **base_strategy.py**: Abstract base class with `Position` dataclass
-- **optimizer.py**: Parallel grid/random search supporting both engines
-- **walkforward.py**: Rolling window out-of-sample testing
-- **mcpt.py**: Monte Carlo Permutation Testing (bar permutation logic from MCPT-Main)
-- **permutation.py**: Advanced/simple permutation functions for MCPT
-- **metrics.py**: Performance metrics (Sharpe, profit factor, Calmar, max drawdown, etc.)
-- **visualization.py**: Plotting functions for equity curves, optimization results, MCPT distributions
-- **data_loader.py**: Load local data with fallback mechanisms
-- **cross_sectional_backtest.py**: Cross-sectional portfolio backtesting
-- **position_strategies.py**: Position sizing strategies (Strategy Pattern)
-- **factor_operators.py**: Factor combination operators
-- **ic_analysis.py**: Information coefficient analysis
-- **sensitivity.py**: Parameter sensitivity analysis
+All strategies inherit from `BaseStrategy` and must implement:
+- `get_lookback()`: Returns required lookback period for indicators
+- Either `generate_signals()` (for vectorized engine) or `check_entry_signal()` + `check_exit_signal()` (for event-driven)
 
-### Position Strategy System (`shared/position_strategies.py`)
+**Strategy Types**:
+- **Traditional**: `ma_cross/`, `momentum/` - Simple technical indicators
+- **ML-based**: `lstm_feature/`, `tree_combined/` - LSTM/XGBoost prediction models
+- **Cross-sectional**: `factors/` directory - Asset universe ranking factors
 
-The framework uses the **Strategy Pattern** to decouple position sizing logic from backtesting:
+---
 
-**Available Strategies:**
+## Common Development Tasks
 
-1. **`TopBottomPositionStrategy`** (default)
-   - Selects top N assets (highest factor values) for long positions
-   - Selects bottom N assets (lowest factor values) for short positions
-   - Equal weight for all positions
-   - Used by most factors (momentum, volume, CVILLIQ)
-
-2. **`ExcessReturnPositionStrategy`**
-   - Market-neutral reversal strategy
-   - Calculates excess returns relative to market average
-   - Weights positions by |excess_return| / Σ|excess_returns|
-   - All assets with non-zero excess returns participate
-   - Used by momentum_reverse factor
-
-3. **`PercentilePositionStrategy`**
-   - Selects assets based on percentile thresholds (e.g., top 20%, bottom 20%)
-   - Useful for dynamic universes with varying sizes
-   - Equal weight within each group
-
-**Usage Examples:**
-
-```python
-# Default behavior (TopBottom strategy)
-from shared.cross_sectional_backtest import CrossSectionalBacktester
-
-backtester = CrossSectionalBacktester(
-    factor_calculator=my_factor,
-    top_n=5,
-    bottom_n=5,
-    # position_strategy not specified - uses TopBottomPositionStrategy
-)
-
-# Custom strategy (ExcessReturn)
-from shared.position_strategies import ExcessReturnPositionStrategy
-
-position_strategy = ExcessReturnPositionStrategy()
-backtester = CrossSectionalBacktester(
-    factor_calculator=my_factor,
-    position_strategy=position_strategy,
-    # top_n/bottom_n not needed - strategy controls position sizing
-)
-
-# Percentile-based strategy
-from shared.position_strategies import PercentilePositionStrategy
-
-position_strategy = PercentilePositionStrategy()
-backtester = CrossSectionalBacktester(
-    factor_calculator=my_factor,
-    position_strategy=position_strategy,
-)
-
-# Run backtest with strategy-specific parameters
-results = backtester.run(
-    factor_df=factor_df,
-    lookback_period=20,  # Passed to ExcessReturnPositionStrategy
-    long_percentile=20,  # Passed to PercentilePositionStrategy
-    short_percentile=20
-)
-```
-
-**Creating Custom Position Strategies:**
-
-```python
-from shared.position_strategies import BasePositionStrategy
-import pandas as pd
-
-class MyCustomStrategy(BasePositionStrategy):
-    def __init__(self):
-        super().__init__(strategy_name="MyCustomStrategy")
-
-    def calculate_positions(self, factor_snapshot, all_data, decision_date, **kwargs):
-        """
-        Implement custom position logic.
-
-        Returns:
-            dict: {asset: (weight, direction)}
-            - weight: float (0.0 to 1.0)
-            - direction: 'long' or 'short'
-        """
-        positions = {}
-        # Your custom logic here
-        return positions
-
-    def get_required_params(self):
-        return ['param1', 'param2']  # Parameters your strategy needs
-```
-
-### Factor System (`factors/`)
-
-For cross-sectional strategies operating on multiple assets:
-
-- **factors/momentum/factor.py**: Example momentum factor
-- Factors calculate time-series values across a universe of assets
-- Returns DataFrame with dates as index, symbols as columns
-- See `dynamic_universe_loader.py` for loading dynamic asset universes
-
-### Data Management (`data_fetchers/`)
-
-Scripts for fetching historical data from Bybit:
-- Pattern: `bybit_{symbol}_1{d|h}_fetcher.py`
-- Saves to `data/{SYMBOL}USDT_{timeframe}_{start}_{end}.csv`
-- All fetchers inherit from common base class
-
-## Common Commands
-
-### Running Tests/Backtests
-
+### Running a Strategy Backtest
 ```bash
-# Basic backtest with fixed parameters
-cd strategies/bb_atr
+cd strategies/[strategy_name]
 python test_backtest.py
-
-# Parameter optimization (random search, 200 iterations)
-python test_optimization_random.py
-
-# Statistical validation via MCPT
-python test_mcpt.py
-
-# Walk-forward analysis (out-of-sample testing)
-python test_walkforward_random.py
-
-# Walk-forward + MCPT on each window
-python test_walkforward_random_mcpt.py
 ```
 
-### Data Fetching
-
-```python
-from data_fetchers.bybit_btc_1h_fetcher import fetch_bybit_btc_1h_data
-
-df = fetch_bybit_btc_1h_data(
-    start_date="2022-01-01",
-    end_date="2025-10-02",
-    save=True,
-    verbose=True
-)
-```
-
-### Installing Dependencies
-
+### Parameter Optimization
 ```bash
-pip install -r requirements.txt
+cd strategies/[strategy_name]
+python test_optimization_with_sensitivity.py
 ```
 
-Dependencies: pandas, numpy, matplotlib, seaborn, ta (technical analysis), numba (performance)
+### Walk-Forward Out-of-Sample Testing
+```bash
+cd strategies/[strategy_name]
+python test_walkforward_with_sensitivity.py
+```
 
-## Strategy Testing Workflow
+### Fetching Fresh Data
+```bash
+# Example: Bybit BTC 1-hour data
+from data_fetchers.bybit_btc_1h_fetcher import fetch_bybit_btc_1h_data
+df = fetch_bybit_btc_1h_data(start_date="2024-01-01", end_date="2024-12-31", save=True)
+```
 
-The recommended sequence for validating a strategy:
+### Creating a New Strategy
 
-1. **Basic Backtest** (`test_backtest.py`): Verify strategy logic with fixed parameters
-2. **Parameter Optimization** (`test_optimization_random.py`): Find optimal parameters via random search
-3. **MCPT Validation** (`test_mcpt.py`): Check if results are statistically significant (p < 0.05)
-4. **Walk-Forward Analysis** (`test_walkforward_random.py`): Test robustness with rolling windows
-5. **Walk-Forward MCPT** (`test_walkforward_random_mcpt.py`): MCPT on each out-of-sample window
+1. **Create directory**: `mkdir strategies/your_strategy`
+2. **Implement strategy.py** inheriting from `BaseStrategy`
+3. **Create test files**: `test_backtest.py`, `test_optimization_with_sensitivity.py`, `test_walkforward_with_sensitivity.py`
+4. Reference existing strategies (`ma_cross/`, `lstm_feature/`) for patterns
 
-Only deploy strategies that pass all tests with:
-- MCPT p-value < 0.05 (statistically significant)
-- Walk-forward OOS/IS ratio > 0.7
-- Walk-forward consistency > 60%
+### Creating a New Data Source
 
-## Key Implementation Details
+Copy and modify an existing fetcher (e.g., `bybit_btc_1h_fetcher.py`):
+- Change `symbol` (e.g., "ETHUSDT")
+- Update function name
+- Modify output filename
 
-### Transaction Costs
+---
 
-All backtests account for:
-- `transaction_cost`: Default 0.0006 (0.06%, includes maker/taker fees)
-- `slippage`: Default 0.0001 (0.01%, execution slippage)
+## Key Design Patterns
 
-### Time Periods
+### Lookahead Bias Prevention
 
-Set `periods_per_year` based on timeframe:
-- 1-hour data: 8760 (24 * 365)
-- Daily data: 365
-
-This affects annualized metrics like Sharpe ratio.
-
-### Parallel Processing
-
-Optimizers use `n_jobs=-1` by default (all CPU cores). Reduce if memory constrained:
+**Critical**: All indicators must use `shift(1)`:
 ```python
-optimizer = ParameterOptimizer(..., n_jobs=4)  # Use 4 cores
+# ❌ Wrong - uses current bar's data
+ma = df['close'].rolling(20).mean()
+signals = df['close'] > ma  # Lookahead!
+
+# ✅ Correct - uses previous bar's data
+ma = df['close'].rolling(20).mean().shift(1)
+signals = df['close'] > ma  # Only historical data
 ```
 
-### Random Search Parameters
+This ensures signals generated at bar close are executed next bar open (no future peeking).
 
-Random search uses `n_iter` iterations (default 200) sampling from parameter grids:
+### Two Backtesting Engines
+
+**Vectorized Engine** (`BacktestEngine`):
+- Fast, all-at-once calculation
+- Suitable for simple entry/exit logic
+- Use `quick_backtest()` for rapid prototyping
+
+**Event-Driven Engine** (`EventDrivenBacktestEngine`):
+- Bar-by-bar simulation
+- Supports complex logic: trailing stops, position sizing, dynamic exits
+- Slower but more realistic
+
+### Parameter Optimization
+
 ```python
-param_grid = {
-    'bb_window': list(range(20, 201, 5)),  # Grid of possible values
-    'bb_std': list(np.arange(1.5, 3.1, 0.1))
-}
+from shared.optimizer import ParameterOptimizer
+
+param_grid = {'window': [10, 20, 30], 'threshold': [0.01, 0.02]}
+optimizer = ParameterOptimizer(
+    strategy_func=strategy.generate_signals,
+    data=df,
+    param_grid=param_grid,
+    objective='sharpe_ratio',  # or 'profit_factor', 'calmar_ratio', etc.
+    n_jobs=4  # Parallel processing cores
+)
+best_params = optimizer.optimize()
 ```
 
-Optimizer randomly samples `n_iter` combinations from the Cartesian product.
+### Cross-Sectional Factors
 
-### Result Storage
+Factors rank assets in a universe. Each factor implements:
+```python
+class MyFactor(BaseFactor):
+    def calculate(self, df: pd.DataFrame) -> pd.DataFrame:
+        # Return DataFrame with index=timestamps, columns=symbols, values=factor scores
+        return factor_scores
+```
 
-All test scripts automatically save results to `strategies/{name}/results/`:
-- Backtest: equity curves, trade logs, performance metrics (JSON/CSV/PNG)
-- Optimization: parameter grids, best params, sensitivity charts
-- MCPT: permutation distributions, p-values, statistical summaries
-- Walk-forward: rolling window results, OOS metrics, consistency analysis
+Used in ensemble strategies to select top/bottom assets.
 
-### Plotting
+---
 
-All plots use `matplotlib.use('Agg')` to disable auto-display and save to disk only.
+## Performance Metrics
 
-## Code Style Conventions
+The framework calculates 13 metrics:
 
-- Follow PEP 8 style guide
-- Use `numba` decorators for computationally intensive loops
-- Module-level strategy wrapper functions required for multiprocessing:
-  ```python
-  def strategy_func(data, param1, param2):
-      strategy = MyStrategy()
-      return strategy.generate_signals(data, param1=param1, param2=param2)
-  ```
-- Document purposes at file headers (Chinese docstrings are standard in this codebase)
-- Use `load_local_data()` from `shared/data_loader.py` to load data, not manual CSV reads
+**Portfolio Level**:
+- Total Return, Annualized Return, Volatility, Sharpe Ratio
+- Maximum Drawdown, Calmar Ratio
+- Win Rate, Profit Factor
+- Total Trades, Winning Trades, Losing Trades, Avg Win/Loss
 
-## Testing Against Overfitting
+**Transaction Costs**: Fees (bps) + Slippage (bps) modeled per trade
 
-The framework incorporates statistical rigor via:
+---
 
-1. **Bar Permutation (MCPT)**: Randomly shuffles trade entry signals while keeping bars in order. If original strategy significantly outperforms 1000 permutations (p < 0.05), it's not just curve-fitting.
+## Testing and Validation Workflow
 
-2. **Walk-Forward Analysis**: Optimizes on training window, tests on unseen future window, rolls forward. Prevents using future data for parameter selection.
+1. **test_backtest.py**: Validate strategy logic with fixed parameters
+2. **test_optimization_with_sensitivity.py**: Find optimal parameters, analyze sensitivity
+3. **test_walkforward_with_sensitivity.py**: Realistic out-of-sample testing
+4. **test_mcpt.py** (optional): Statistical significance via permutation testing
 
-3. **Combined MCPT + Walk-Forward**: Runs MCPT on each walk-forward window to ensure each OOS period is statistically valid.
+Results are saved in `results/` with:
+- Performance metrics (JSON)
+- Equity curve plots
+- Parameter sensitivity heatmaps
+- Monthly returns tables
 
-## Google Colab Support
-
-`Google_Colab_Runner.ipynb` enables running the framework on Colab with GPU/TPU acceleration for faster optimization.
+---
 
 ## Important Notes
 
-- Git tracks empty `results/` directories with `.gitkeep` files
-- Data files are .gitignored (see `.gitignore`)
-- All strategies use event-driven engine with sophisticated exit logic (trailing stops, breakeven, time-based exits)
-- Factor-based strategies in `factors/` operate on cross-sectional data across multiple assets
-- `dynamic_universe_loader.py` demonstrates loading rebalancing universes from CSV
+### Data Handling
+- Data stored as CSV in `data/` directory
+- Supports lookback extension for indicator warmup
+- `data_loader.py` handles date range and lookback automatically
+
+### Dependencies
+- **Core**: pandas, numpy, scipy, scikit-learn, matplotlib, seaborn
+- **ML**: tensorflow/keras (LSTM), xgboost
+- **Utilities**: joblib (parallel), tqdm (progress), requests (API)
+
+### Code Review and Debugging
+
+Per project instructions:
+- Use code reviewer for all code modifications
+- Use debugger for debugging issues
+
+### Optimization Objectives
+
+Choose based on strategy goals:
+- **Sharpe Ratio**: Stable, risk-adjusted returns
+- **Profit Factor**: High absolute profitability
+- **Calmar Ratio**: Risk-efficient growth
+- **Max Return**: Maximum absolute gain
+- **Max Drawdown**: Minimize peak-to-trough loss
+
+---
+
+## Recent Architecture Decisions
+
+- **Lookahead Bias**: Enforced via `shift(1)` on all indicators
+- **Dual Engine Design**: Vectorized for speed, event-driven for complexity
+- **Parallel Optimization**: ProcessPoolExecutor for multi-core parameter search
+- **Walk-Forward First**: Out-of-sample testing over in-sample optimization
+- **ML Integration**: LSTM/XGBoost as factors within strategy framework
+- **Cross-Sectional Support**: Unified factor system for asset ranking
+
+---
+
+## File Reading/Modification Patterns
+
+When modifying code:
+1. Always use code reviewer for code changes (per CLAUDE.md instructions)
+2. Read files first to understand context before editing
+3. Avoid over-engineering: only change what's necessary
+4. Use existing patterns from similar strategies/factors as templates
+5. Test modified code by running the appropriate test file
+
+---
+
+## Useful References
+
+- **BaseStrategy**: `shared/base_strategy.py` - Interface all strategies implement
+- **Example Strategies**: `strategies/ma_cross/`, `strategies/lstm_feature/`
+- **Metrics**: `shared/metrics.py` - All available performance metrics
+- **Validation**: `shared/mcpt.py`, `shared/walkforward.py` - Statistical testing

@@ -20,8 +20,8 @@ def main():
     # ===== 配置 =====
     SYMBOL = 'BTCUSDT'
     DATA_SOURCE = '1h'
-    START_DATE = '2022-12-01'
-    END_DATE = '2025-01-31'
+    START_DATE = '2020-04-01'
+    END_DATE = '2024-04-30'
 
     # 時間尺度選擇
     # 選項 1: 單時間尺度
@@ -52,20 +52,21 @@ def main():
     # ===== 初始化因子 =====
     print("\n初始化 LSTM 特徵因子...")
     factor = LSTMFeatureFactor(
-        sequence_length=60,      # 過去 60 根 K 線
-        hidden_dim=128,          # LSTM 隱藏層 128 維
-        num_layers=2,            # 2 層 LSTM
-        output_dim=1,            # 輸出 1 維 (預測概率)
-        time_scales=TIME_SCALES  # 時間尺度列表
+        sequence_length=60,       # 2.5天（60小時）- 最佳短期預測長度
+        hidden_dim=128,           # LSTM隱藏層128維 - 提升模型表達能力
+        num_layers=2,             # 2層LSTM - 提供足夠深度學習複雜模式
+        output_dim=1,             # 輸出1維（回歸）
+        time_scales=TIME_SCALES   # 時間尺度列表
     )
 
     # ===== 訓練 =====
     print("\n開始訓練...")
     factor.train(
         data=data,
-        epochs=100,
-        batch_size=256,
-        val_split=0.2
+        epochs=150,         # 增加訓練輪次，給模型更多時間學習
+        batch_size=64,      # 減小batch size提升訓練穩定性
+        val_split=0.2,
+        patience=30         # 增加early stopping耐心值
     )
 
     # ===== 完成 =====

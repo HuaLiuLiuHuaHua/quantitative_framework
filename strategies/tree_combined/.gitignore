@@ -1,0 +1,5 @@
+# 忽略訓練好的模型文件 (太大,不提交到Git)
+models/
+
+# 保留目錄結構
+!models/.gitkeep

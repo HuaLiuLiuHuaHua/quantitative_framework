@@ -43,17 +43,21 @@ class BaseStrategy(ABC):
         self.params = params
 
     @abstractmethod
-    def get_lookback(self) -> int:
+    def get_required_lookback(self, **params) -> int:
         """
-        (Required for Event-Driven Engine) Returns the lookback period required by the strategy.
+        (Required for Backtest Engines) Returns the lookback period required by the strategy.
 
         This method should calculate and return the maximum number of bars required
-        for all indicators to warm up properly.
+        for all indicators to warm up properly, based on the given parameters.
+        This is crucial for providing a "warm-up" period for walk-forward OOS tests.
+
+        Args:
+            **params: The specific parameter set being used.
 
         Returns:
             int: The lookback period.
         """
-        raise NotImplementedError("Strategies must implement get_lookback()")
+        raise NotImplementedError("Strategies must implement get_required_lookback(**params)")
 
     # --- For Event-Driven Engine ---
 

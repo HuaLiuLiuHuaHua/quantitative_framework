@@ -40,7 +40,12 @@
       "Bash(timeout 300 bash:*)",
       "Bash(C:Python313python.exe -c \"import pandas as pd; df = pd.read_csv(''debug_results.csv''); valid = df[df[''max_drawdown''] > -0.3]; print(f''總共 {len(df)} 個結果''); print(f''符合回撤<30%條件的: {len(valid)} 個''); print(f''\\n回撤最小的5個:''); print(df.nlargest(5, ''max_drawdown'')[[''window'', ''threshold_window'', ''long_entry_quantile'', ''short_entry_quantile'', ''sharpe_ratio'', ''max_drawdown'']])\")",
       "Bash(grep:*)",
-      "Bash(timeout 600 python:*)"
+      "Bash(timeout 600 python:*)",
+      "Bash(timeout 600 bash -c 'while pgrep -f \"\"train.py\"\" > /dev/null; do sleep 10; done; echo \"\"[OK] Training completed at $(date)\"\"')",
+      "Bash(timeout 900 python:*)",
+      "Bash(wmic path win32_VideoController get name:*)",
+      "Bash(timeout 30 python:*)",
+      "Bash(echo \"\n\n════════════════════════════════════════════════════════════════════════════════\n                     代码审查完成 - 最终总结\n════════════════════════════════════════════════════════════════════════════════\n\n审查文件位置：\n  📄 c:\\Users\\liual\\OneDrive\\桌面\\quantitative_framework\\CODE_REVIEW.md\n\n审查发现：\n  🔴 CRITICAL: 1 个 (_run_oos_test() 缺少 capital_allocation)\n  🟡 WARNING: 1 个 (参数网格歧义)\n  🟠 SUGGESTION: 1 个 (类型转换不一致)\n\n建议立即修复：\n  shared/walkforward.py 第 676-687 行\n  添加 capital_allocation 计算，确保 OOS 测试与训练一致\n\n修复时间：\n  • P0 必须: 5 分钟\n  • P1 建议: 2 分钟\n  • P2 可选: 10 分钟\n  • 验证: 5-10 分钟\n\n下一步：\n  1. 查看生成的代码审查报告（CODE_REVIEW.md）\n  2. 应用修复代码\n  3. 运行验证测试\n\n════════════════════════════════════════════════════════════════════════════════\n\")"
     ],
     "deny": [],
     "ask": []

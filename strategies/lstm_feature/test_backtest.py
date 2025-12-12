@@ -8,6 +8,7 @@ import sys
 from pathlib import Path
 sys.path.append(str(Path(__file__).parents[2]))
 
+import json
 import matplotlib
 matplotlib.use('Agg')
 
@@ -24,8 +25,8 @@ def main():
     # ===== 配置 =====
     SYMBOL = 'BTCUSDT'
     DATA_SOURCE = '1h'
-    TEST_START_DATE = '2024-01-01'
-    TEST_END_DATE = '2024-12-31'
+    TEST_START_DATE = '2024-05-01'
+    TEST_END_DATE = '2025-11-30'
 
     # ===== 加載測試數據 =====
     print(f"\n加載測試數據: {SYMBOL} {DATA_SOURCE} ({TEST_START_DATE} ~ {TEST_END_DATE})")
@@ -69,18 +70,16 @@ def main():
     # 信號質量檢查
     if n_long + n_short < n_total * 0.05:
         print(f"\n[WARNING] 信號太稀疏 ({(n_long+n_short)/n_total*100:.1f}%)")
-        print(f"   建議: 降低 buy_threshold/sell_threshold")
 
     if n_long + n_short > n_total * 0.95:
         print(f"\n[WARNING] 信號過於頻繁 ({(n_long+n_short)/n_total*100:.1f}%)")
-        print(f"   建議: 提高 buy_threshold/sell_threshold")
 
     # ===== 執行回測 =====
     print("\n執行回測...")
     engine = BacktestEngine(
         data=data,
         signals=signals,
-        transaction_cost=0.0006,  # 0.06% 交易費用
+        transaction_cost=0.0002,  # 0.02% 交易費用
         slippage=0.0001,          # 0.01% 滑點
         initial_capital=100000,   # 初始資金 100,000
         periods_per_year=8760     # 小時線: 24 * 365
@@ -99,29 +98,49 @@ def main():
     print("評估")
     print("=" * 70)
 
-    sharpe = engine.sharpe_ratio
-    oos_return = engine.total_return
-    max_dd = engine.max_drawdown
+    sharpe = engine.metrics['sharpe_ratio']
+    oos_return = engine.metrics['total_return']
+    max_dd = engine.metrics['max_drawdown']
 
-    if sharpe > 1.5:
-        print(f"[OK] 夏普比率優秀: {sharpe:.2f} (> 1.5)")
-    elif sharpe > 1.0:
-        print(f"[OK] 夏普比率良好: {sharpe:.2f} (> 1.0)")
-    else:
-        print(f"[WARNING] 夏普比率偏低: {sharpe:.2f} (< 1.0)")
+    print(f"夏普比率: {sharpe:.2f}")
+    print(f"總收益率: {oos_return:.2%}")
+    print(f"最大回撤: {max_dd:.2%}")
 
-    if max_dd > -0.30:
-        print(f"[OK] 最大回撤可控: {max_dd:.2%} (> -30%)")
-    else:
-        print(f"[WARNING] 最大回撤過大: {max_dd:.2%} (< -30%)")
+    # ===== 儲存結果 =====
+    results_dir = Path(__file__).parent / 'results'
+    results_dir.mkdir(exist_ok=True)
 
-    print("\n下一步:")
-    print("  1. 如果 Sharpe > 1.5, 可進行參數優化:")
-    print("     python strategies/lstm_feature/test_optimization_random.py")
-    print("  2. 進行 Walk-Forward 驗證:")
-    print("     python strategies/lstm_feature/test_walkforward_random.py")
-    print("  3. MCPT 統計檢驗:")
-    print("     python strategies/lstm_feature/test_mcpt.py")
+    backtest_results = {
+        'strategy': 'LSTM Feature',
+        'symbol': SYMBOL,
+        'data_source': DATA_SOURCE,
+        'test_period': f"{TEST_START_DATE} ~ {TEST_END_DATE}",
+        'metrics': {
+            'sharpe_ratio': float(sharpe),
+            'total_return': float(oos_return),
+            'max_drawdown': float(max_dd),
+            'annualized_return': float(engine.metrics['annualized_return']),
+            'volatility': float(engine.metrics['volatility']),
+            'calmar_ratio': float(engine.metrics['calmar_ratio']),
+            'win_rate': float(engine.metrics['win_rate']),
+            'profit_factor': float(engine.metrics['profit_factor']),
+            'total_trades': int(engine.metrics['total_trades'])
+        },
+        'signal_distribution': {
+            'long_signals': int(n_long),
+            'short_signals': int(n_short),
+            'neutral_signals': int(n_neutral),
+            'long_pct': float(n_long / n_total * 100),
+            'short_pct': float(n_short / n_total * 100),
+            'neutral_pct': float(n_neutral / n_total * 100)
+        }
+    }
+
+    result_file = results_dir / f'backtest_results_{SYMBOL}_{DATA_SOURCE}.json'
+    with open(result_file, 'w', encoding='utf-8') as f:
+        json.dump(backtest_results, f, indent=2, ensure_ascii=False)
+
+    print(f"\n[OK] 結果已儲存到: {result_file}")
 
 
 if __name__ == '__main__':

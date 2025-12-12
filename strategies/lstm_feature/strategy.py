@@ -1,10 +1,10 @@
 """
-LSTM 特徵策略 - 從預測概率生成交易信號
+LSTM 特徵策略 - 從預測收益率生成交易信號
 
-因子輸出預測概率 [0, 1]:
-- > 0.55: 買進 (long)
-- < 0.45: 賣出 (short)
-- 0.45-0.55: 空倉 (neutral)
+因子輸出預測收益率 (連續值):
+- > threshold_buy: 買進 (long)
+- < threshold_sell: 賣出 (short)
+- 介於之間: 空倉 (neutral)
 """
 
 import sys
@@ -40,8 +40,8 @@ class LSTMFeatureStrategy(BaseStrategy):
     def generate_signals(
         self,
         data: pd.DataFrame,
-        buy_threshold: float = 0.55,
-        sell_threshold: float = 0.45,
+        buy_threshold: float = 0.005,
+        sell_threshold: float = -0.005,
         **kwargs
     ) -> pd.Series:
         """
@@ -49,23 +49,23 @@ class LSTMFeatureStrategy(BaseStrategy):
 
         Args:
             data: OHLCV DataFrame
-            buy_threshold: 買入閾值 (預測概率 > 此值則買入) (預設 0.55)
-            sell_threshold: 賣出閾值 (預測概率 < 此值則賣出) (預設 0.45)
+            buy_threshold: 買入閾值 (預測收益率 > 此值則買入) (預設 0.005 = 0.5%)
+            sell_threshold: 賣出閾值 (預測收益率 < 此值則賣出) (預設 -0.005 = -0.5%)
 
         Returns:
             信號 Series (1=買進, -1=賣出, 0=空倉)
         """
-        # 計算因子值 (預測概率)
-        prob = self.factor.calculate(data)
+        # 計算因子值 (預測收益率)
+        returns_pred = self.factor.calculate(data)
 
         # 生成信號
         signals = pd.Series(0, index=data.index, dtype=int)
 
         # 買進信號
-        signals[prob > buy_threshold] = 1
+        signals[returns_pred > buy_threshold] = 1
 
         # 賣出信號
-        signals[prob < sell_threshold] = -1
+        signals[returns_pred < sell_threshold] = -1
 
         # shift(1) 再次防止 lookahead bias
         signals = signals.shift(1).fillna(0).astype(int)
@@ -75,13 +75,13 @@ class LSTMFeatureStrategy(BaseStrategy):
     def get_parameter_grid(self):
         """返回可優化的參數網格"""
         return {
-            'buy_threshold': np.arange(0.50, 0.70, 0.02),   # 0.50, 0.52, ..., 0.68
-            'sell_threshold': np.arange(0.30, 0.50, 0.02),  # 0.30, 0.32, ..., 0.48
+            'buy_threshold': np.arange(0.001, 0.010, 0.001),   # 0.1%, 0.2%, ..., 0.9%
+            'sell_threshold': np.arange(-0.010, -0.001, 0.001),  # -0.9%, -0.8%, ..., -0.1%
         }
 
     def get_default_parameters(self):
         """返回默認參數"""
         return {
-            'buy_threshold': 0.55,
-            'sell_threshold': 0.45,
+            'buy_threshold': 0.005,
+            'sell_threshold': -0.005,
         }
